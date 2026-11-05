@@ -5,6 +5,7 @@ from agent.runner import arun_agent
 from core.async_utils import run_sync
 from core.market_clock import BriefSlot, current_brief_slot
 from storage import db
+from langchain_core.messages import AIMessage
 
 LABELS = {"premarket": "pre-market brief", "close": "post-close recap"}
 
@@ -19,6 +20,11 @@ async def aget_or_create_brief(user_id: int, slot: BriefSlot | None = None, forc
     # Deliberately doesn't name a skill: the agent has to pick the right one from its catalog.
     question = f"Write my {LABELS[slot.session]} for {slot.brief_date:%A, %B %d, %Y}."
     result = await arun_agent(user_id, question, task=f"brief:{slot.session}")
+    if result.status != "ok":
+        raise RuntimeError(f"Brief run {result.run_id} ended with status {result.status}")
+    last = next((m for m in reversed(result.messages) if isinstance(m, AIMessage)), None)
+    if last is not None and (last.response_metadata or {}).get("stop_reason") == "max_tokens":
+        raise RuntimeError(f"Brief run {result.run_id} was truncated (max_tokens); not saving it.")
     db.save_brief(user_id, slot.brief_date, slot.session, result.answer, run_id=result.run_id)
     return {**db.get_brief(user_id, slot.brief_date, slot.session), "cached": False, "slot_reason": slot.reason}
 

@@ -21,6 +21,7 @@ class Settings:
     claude_model: str
     db_path: Path
     cache_dir: Path
+    checkpoint_path: Path
     
     def missing_keys(self) -> list[str]:
         required = {
@@ -36,5 +37,6 @@ settings = Settings(
     finnhub_api_key=_env("FINNHUB_API_KEY"),
     claude_model=_env("CLAUDE_MODEL") or "claude-haiku-5-5",
     db_path=ROOT / "app.db",
-    cache_dir=ROOT / ".cache"
+    cache_dir=ROOT / ".cache",
+    checkpoint_path=ROOT / "checkpoints.db",
 )

@@ -93,10 +93,10 @@ SUBAGENT_TOOLS = [get_company_news, get_price_performance]
 # ---------- running it ----------
 
 async def run_news_analyst(tickers: list[str], focus: str, config: RunnableConfig | None = None) -> NewsReport:
-    base = {k: v for k, v in (config or {}).items() if k != "run_id"}
+    base = {k: v for k, v in (config or {}).items() if k not in ("run_id", "configurable")}
 
-    graph = build_graph(make_model(max_tokens=1500), SUBAGENT_TOOLS, NEWS_ANALYST_PROMPT,
-                        max_tool_rounds=SUBAGENT_TOOL_ROUNDS)
+    graph = build_graph(make_model(), SUBAGENT_TOOLS, NEWS_ANALYST_PROMPT,
+                        max_tool_rounds=SUBAGENT_TOOL_ROUNDS, checkpointer=False)
     result = await graph.ainvoke(
         {"messages": [HumanMessage(f"Tickers: {', '.join(tickers)}\nFocus: {focus}")], "tool_rounds": 0},
         {**base, "run_name": "subagent:news_analyst", "recursion_limit": 2 * SUBAGENT_TOOL_ROUNDS + 5},
@@ -107,7 +107,7 @@ async def run_news_analyst(tickers: list[str], focus: str, config: RunnableConfi
         f"[{m.name}] {content_to_text(m.content)[:3000]}" for m in msgs if isinstance(m, ToolMessage)
     )
     findings = final_text(msgs)
-    structurer = make_model(max_tokens=4000).with_structured_output(NewsReport, include_raw=True)
+    structurer = make_model().with_structured_output(NewsReport, include_raw=True)
     out = await structurer.ainvoke(
         [SystemMessage(STRUCTURE_PROMPT),
          HumanMessage(f"Requested tickers: {tickers}\n\nANALYST FINDINGS:\n{findings}"

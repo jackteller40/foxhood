@@ -138,6 +138,7 @@ class TraceHandler(BaseCallbackHandler):
 
     def on_llm_end(self, response, *, run_id, **kwargs):
         out: dict[str, Any] = {}
+        status, error = "ok", None
         try:
             gen = response.generations[0][0]
             msg = getattr(gen, "message", None)
@@ -148,10 +149,12 @@ class TraceHandler(BaseCallbackHandler):
                 usage = getattr(msg, "usage_metadata", None)
                 if usage:
                     out["usage"] = {k: usage.get(k) for k in ("input_tokens", "output_tokens", "total_tokens")}
+                out["stop_reason"] = (getattr(msg, "response_metadata", None) or {}).get("stop_reason")
+                if out["stop_reason"] == "max_tokens":
+                    status, error = "error", "Output truncated (stop_reason=max_tokens)"
         except Exception as e:
             out["parse_error"] = str(e)
-        self._end(run_id, out)
-
+        self._end(run_id, out, status=status, error=error)
     def on_llm_error(self, error, *, run_id, **kwargs):
         self._end(run_id, status="error", error=repr(error))
 
