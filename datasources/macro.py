@@ -67,7 +67,7 @@ def get_series(series_id: str, start: date | str | None = None) -> pd.Series:
 
 
 def get_macro_snapshot() -> dict:
-    """Latest value + 1-month change for each key series (CPI also gets YoY %)."""
+    """Latest value + 1-month change for each key series. CPI leads with YoY inflation %."""
     snapshot: dict[str, dict] = {}
     for sid, label in KEY_SERIES.items():
         try:
@@ -81,16 +81,29 @@ def get_macro_snapshot() -> dict:
 
         latest_date = s.index[-1]
         latest = float(s.iloc[-1])
-        month_ago = s.asof(latest_date - pd.Timedelta(days=30))
-        entry = {
-            "label": label,
-            "value": round(latest, 3),
-            "date": latest_date.date().isoformat(),
-            "change_1m": None if pd.isna(month_ago) else round(latest - float(month_ago), 3),
-        }
+
         if sid == "CPIAUCSL":
-            year_ago = s.asof(latest_date - pd.Timedelta(days=365))
-            entry["yoy_pct"] = None if pd.isna(year_ago) else round((latest / float(year_ago) - 1) * 100, 2)
+            # The index level means nothing to a reader; lead with YoY inflation.
+            def yoy_at(d):
+                now_v, then_v = s.asof(d), s.asof(d - pd.Timedelta(days=365))
+                return None if pd.isna(now_v) or pd.isna(then_v) else (float(now_v) / float(then_v) - 1) * 100
+
+            yoy, yoy_prev = yoy_at(latest_date), yoy_at(latest_date - pd.Timedelta(days=30))
+            entry = {
+                "label": "CPI inflation, year over year (%)",
+                "value": None if yoy is None else round(yoy, 2),
+                "date": latest_date.date().isoformat(),
+                "change_1m": None if yoy is None or yoy_prev is None else round(yoy - yoy_prev, 2),
+                "index_level": round(latest, 3),
+            }
+        else:
+            month_ago = s.asof(latest_date - pd.Timedelta(days=30))
+            entry = {
+                "label": label,
+                "value": round(latest, 3),
+                "date": latest_date.date().isoformat(),
+                "change_1m": None if pd.isna(month_ago) else round(latest - float(month_ago), 3),
+            }
         snapshot[sid] = entry
     return snapshot
 
@@ -113,11 +126,12 @@ def get_upcoming_releases(days: int = 7) -> list[dict]:
         if not label or (r["date"], label) in seen:
             continue
         seen.add((r["date"], label))
-        out.append({"date": r["date"], "event": label, "release_name": name})
+        out.append({"date": r["date"], "weekday": date.fromisoformat(r["date"]).strftime("%A"),
+                    "event": label, "release_name": name})
 
     end = start + timedelta(days=days)
     for d in FOMC_DECISION_DATES:
         if start <= d <= end:
-            out.append({"date": d.isoformat(), "event": "FOMC rate decision",
+            out.append({"date": d.isoformat(), "weekday": d.strftime("%A"), "event": "FOMC rate decision",
                         "release_name": "FOMC statement 2:00 pm ET, press conference 2:30 pm ET"})
     return sorted(out, key=lambda x: x["date"])

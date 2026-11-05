@@ -10,7 +10,7 @@ import pandas as pd
 from langchain_core.tools import tool
 import threading
 
-from datasources import market, news
+from datasources import market
 from datasources.market import ET
 from portfolio import metrics
 from portfolio.positions import resolve_lot
@@ -140,16 +140,6 @@ def make_local_tools(user_id: int) -> list:
         return _dump(market.get_company_info(ticker))
 
     @tool
-    def get_company_news(ticker: str, days: int = 3) -> str:
-        """Recent news headlines for one ticker from the last `days` days (1-14), newest first,
-        with source, URL, and a short summary. Results may include market roundups that only
-        mention the ticker; judge relevance before using them."""
-        items = news.get_company_news(ticker.strip().upper(), days=max(1, min(int(days), 14)), limit=6)
-        for it in items:
-            it["summary"] = (it.get("summary") or "")[:300]
-        return _dump({"ticker": ticker.upper(), "articles": items})
-
-    @tool
     def recall_memory(query: str) -> str:
         """Search this user's saved memories (preferences, facts, past brief takeaways) by
         keywords. Call before giving recommendations or ideas, and whenever the user's past
@@ -164,4 +154,4 @@ def make_local_tools(user_id: int) -> list:
         ]})
 
     return [get_portfolio_summary, get_positions, get_watchlist_snapshot, get_price_performance,
-            get_company_profile, get_company_news, recall_memory]
+            get_company_profile, recall_memory]

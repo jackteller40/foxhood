@@ -60,6 +60,7 @@ def watchlist_ops():
     before = len(db.list_watchlist(uid))
     db.add_to_watchlist(uid, "amd", "duplicate test")      # existing ticker, lowercase
     assert len(db.list_watchlist(uid)) == before, "duplicate ticker created a new row"
+    db.add_to_watchlist(uid, "AMD", "AI chip competitor")  # restore the seed note
     db.add_to_watchlist(uid, "ARM")
     assert len(db.list_watchlist(uid)) == before + 1
     assert db.remove_from_watchlist(uid, "ARM")
