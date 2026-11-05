@@ -71,7 +71,7 @@ def get_macro_snapshot() -> dict:
     snapshot: dict[str, dict] = {}
     for sid, label in KEY_SERIES.items():
         try:
-            s = get_series(sid)
+            s = get_series(sid, start=date.today() - timedelta(days=800))  # monthly series + YoY need >13 months
         except Exception as e:
             snapshot[sid] = {"label": label, "error": str(e)}
             continue
