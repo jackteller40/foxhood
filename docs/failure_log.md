@@ -72,3 +72,18 @@
   the memory's kind.
 - **Fix:** search also matches the memory kind; the smoke check now requires recall to return
   at least one memory, not just to be called.
+
+  ## 7. Brief truncated mid-sentence; trace said "ok" (2026-11-05)
+- **Run:** de302216-f096-4161-8552-64ec8eb53d8d
+- **Symptom:** pre-market brief ended at "AAPL (25.6%)". All checks passed and the brief was cached.
+- **Trace:** the final `llm` event's usage showed output_tokens = <paste>, i.e. the 2,000 max_tokens
+  cap. No tool errors.
+- **Cause:** max_tokens too low for a full brief (likely including the model's internal reasoning
+  tokens); stop_reason wasn't recorded, so the truncation was invisible.
+- **Fix:** max_tokens 8,000; tracer records stop_reason and marks max_tokens stops as errors;
+  briefs refuse to cache truncated output.
+- **Also found (run a7241d07-54a9-4653-a35a-aeede3259594):** with stop_reason now traced, the
+  news subagent's findings call was flagged `error: Output truncated (stop_reason=max_tokens)`.
+  It had its own hard-coded max_tokens=1500 that the default change didn't touch. Fixed by using
+  the default for both subagent model calls.
+- **Verified:** <re-run id>; no `error` events, brief complete.

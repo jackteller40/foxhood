@@ -1,0 +1,37 @@
+# Permission policy for the investment research agent.
+# Enforced in agent/graph.py (the "gate" node) BEFORE any tool runs.
+# Evaluation order: deny list -> argument/content rules -> unattended mode -> ask -> allow -> default
+version: 1
+default: deny            # any tool not listed below is blocked
+
+budget:
+  max_tool_calls_per_run: 40   # main-agent tool calls per run; calls over budget are denied
+
+allow:                   # read-only: run without asking
+  - get_portfolio_summary
+  - get_positions
+  - get_watchlist_snapshot
+  - get_price_performance
+  - get_company_profile
+  - recall_memory
+  - load_skill
+  - delegate_news_analysis
+  - get_macro_snapshot
+  - get_series
+  - get_upcoming_releases
+
+ask:                     # changes user data: pause and ask the user first
+  add_to_watchlist: Changes the user's watchlist.
+  remove_from_watchlist: Changes the user's watchlist.
+  add_holding: Changes the user's portfolio records.
+  remember: Saves information about the user that future runs will rely on.
+
+deny:                    # never allowed, whatever the user says
+  submit_trade_order: This app is research-only and never places trades.
+
+rules:
+  max_holding_value_usd: 100000            # bigger is almost certainly a typo
+  validate_ticker_for: [add_to_watchlist, add_holding]
+  sensitive_content:                       # memory writes matching these are denied
+    ssn: '\b\d{3}-\d{2}-\d{4}\b'
+    account_or_card_number: '\b(?:\d[ -]?){9,19}\b'
