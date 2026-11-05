@@ -27,7 +27,10 @@ def get_macro_snapshot() -> dict:
     high-yield credit spread, and VIX. Use this for rates/inflation/risk context."""
     log.info("tool get_macro_snapshot")
     try:
-        return macro.get_macro_snapshot()
+        snap = macro.get_macro_snapshot()
+        if not snap:
+            return {"error": "Macro snapshot came back empty (no series returned)."}
+        return snap
     except Exception as e:
         log.exception("get_macro_snapshot failed")
         return {"error": str(e)}

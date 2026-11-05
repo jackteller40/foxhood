@@ -51,10 +51,15 @@ def _preview(text: str, limit: int = PREVIEW_CHARS) -> str:
 
 
 def _looks_like_error(text: str) -> bool:
+    """Error JSON, an 'Error:' string, or an empty result all count as failures."""
+    if not text.strip():
+        return True
     try:
         obj = json.loads(text)
     except (ValueError, TypeError):
         return text.startswith("Error:")
+    if obj in ({}, []):
+        return True
     return isinstance(obj, dict) and "error" in obj
 
 

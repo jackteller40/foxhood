@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AnyMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AnyMessage, SystemMessage, ToolMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -67,3 +67,14 @@ def build_graph(model, tools: list, system_prompt: str, max_tool_rounds: int = M
     g.add_conditional_edges("agent", route, {"tools": "tools", END: END})
     g.add_edge("tools", "agent")
     return g.compile()
+
+def final_text(messages: list) -> str:
+    """Text of the agent's final answer (last AI message with text)."""
+    for m in reversed(messages):
+        if isinstance(m, AIMessage):
+            text = content_to_text(m.content).strip()
+            if text:
+                return text
+            if m.tool_calls:
+                return "I hit my tool budget before finishing. Try a narrower question."
+    return "(no answer)"

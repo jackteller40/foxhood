@@ -5,17 +5,18 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langchain_mcp_adapters.tools import load_mcp_tools
 
-from agent.graph import build_graph
+from agent.graph import build_graph, final_text
 from agent.mcp_client import get_mcp_client
+from agent.models import make_model
 from agent.prompts import build_system_prompt
+from agent.skills import catalog_text, discover_skills, make_skill_tool
+from agent.subagents.news_analyst import make_news_subagent_tool
 from agent.tools import make_local_tools
-from agent.tracing import TraceHandler, content_to_text, now_iso
+from agent.tracing import TraceHandler, now_iso
 from core.async_utils import run_sync
-from core.config import settings
 from storage import db
 
 
@@ -28,26 +29,12 @@ class AgentResult:
     messages: list = field(default_factory=list)
 
 
-def make_model() -> ChatAnthropic:
-    # This model rejects `temperature` (400: "Extra inputs are not permitted"), so we don't send it.
-    return ChatAnthropic(model=settings.claude_model, max_tokens=1500, max_retries=2)
-
-
-def _final_answer(messages: list) -> str:
-    for m in reversed(messages):
-        if isinstance(m, AIMessage):
-            text = content_to_text(m.content).strip()
-            if text:
-                return text
-            if m.tool_calls:
-                return "I hit my tool budget before finishing. Try a narrower question."
-    return "(no answer)"
-
 def _root_cause(e: BaseException) -> BaseException:
     """anyio/MCP wrap errors in ExceptionGroups; dig out the real one."""
     while isinstance(e, BaseExceptionGroup) and e.exceptions:
         e = e.exceptions[0]
     return e
+
 
 async def arun_agent(user_id: int, question: str, task: str = "chat") -> AgentResult:
     user = db.get_user(user_id)
@@ -63,8 +50,14 @@ async def arun_agent(user_id: int, question: str, task: str = "chat") -> AgentRe
         client = get_mcp_client()
         async with client.session("macro") as session:  # one MCP server process for the whole run
             mcp_tools = await load_mcp_tools(session)
-            tools = make_local_tools(user_id) + mcp_tools
-            graph = build_graph(make_model(), tools, build_system_prompt(user))
+            skills = discover_skills()
+            tools = [
+                *make_local_tools(user_id),
+                *mcp_tools,
+                make_skill_tool(skills),
+                make_news_subagent_tool(),
+            ]
+            graph = build_graph(make_model(), tools, build_system_prompt(user, catalog_text(skills)))
             tracer = TraceHandler(run_id, user_id, {t.name for t in mcp_tools})
             result = await graph.ainvoke(
                 {"messages": [HumanMessage(question)], "tool_rounds": 0},
@@ -78,7 +71,7 @@ async def arun_agent(user_id: int, question: str, task: str = "chat") -> AgentRe
                 },
             )
         messages = result["messages"]
-        answer = _final_answer(messages)
+        answer = final_text(messages)
     except Exception as e:
         cause = _root_cause(e)
         status, error = "error", f"{type(cause).__name__}: {cause}"
@@ -93,6 +86,7 @@ async def arun_agent(user_id: int, question: str, task: str = "chat") -> AgentRe
         )
 
     return AgentResult(run_id, answer, status, round(time.perf_counter() - t0, 1), messages)
+
 
 def run_agent(user_id: int, question: str, task: str = "chat") -> AgentResult:
     """Sync wrapper for Streamlit and scripts."""

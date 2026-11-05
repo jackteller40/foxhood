@@ -309,7 +309,8 @@ def search_memories(user_id: int, query: str, limit: int = 5, kind: str | None =
         return candidates[:limit]
     scored = []
     for rank, m in enumerate(candidates):
-        score = 2 * len(q & _tokens(" ".join(m["tags"]))) + len(q & _tokens(m["content"]))
+        searchable = _tokens(m["content"]) | _tokens(m["kind"].replace("_", " "))
+        score = 2 * len(q & _tokens(" ".join(m["tags"]))) + len(q & searchable)
         if score:
             scored.append((score, -rank, m))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
