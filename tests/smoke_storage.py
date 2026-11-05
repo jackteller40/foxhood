@@ -36,12 +36,13 @@ def seeding():
 
 def holdings_roundtrip():
     for u in users():
-        lots = db.holdings_as_lots(u["id"])
-        resolved = [resolve_lot(l) for l in lots]
+        resolved = [resolve_lot(l) for l in db.holdings_as_lots(u["id"])]
         s = metrics.portfolio_summary(resolved)
-        print(f"{u['name']:12} {len(lots)} lots | value ${s['total_value']:,.0f} | "
-              f"P&L {s['total_pnl_pct']:.1f}% vs SPY {s['benchmark_pnl_pct']:.1f}% | "
-              f"largest {s['largest_position']} {s['largest_weight_pct']:.0f}%")
+        print(f"{u['name']:12} value ${s['total_value']:,.0f} | largest {s['largest_position']} {s['largest_weight_pct']:.0f}%")
+        print(f"{'':12} price return {s['total_pnl_pct']:6.1f}% vs SPY {s['benchmark_pnl_pct']:6.1f}%  "
+              f"(gap {s['excess_return_pct']:+.1f})")
+        print(f"{'':12} total return {s['total_return_pct']:6.1f}% vs SPY {s['benchmark_total_return_pct']:6.1f}%  "
+              f"(gap {s['excess_total_return_pct']:+.1f})")
 
 
 def schd_split():
