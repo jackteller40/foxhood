@@ -89,7 +89,9 @@ def portfolio_summary(resolved: list[ResolvedLot], positions: pd.DataFrame | Non
     value = float(positions["market_value"].sum())
     pnl_pct = (value / cost - 1) * 100
 
-    spy_price = market.get_quote(BENCHMARK)["price"]
+    spy_q = market.get_quote(BENCHMARK)
+    spy_price = spy_q["price"]
+    day_pnl = float(positions["day_pnl"].sum())
     spy_value = sum(benchmark_lot(r).shares_now for r in resolved) * spy_price
     spy_pnl_pct = (spy_value / cost - 1) * 100
 
@@ -103,7 +105,9 @@ def portfolio_summary(resolved: list[ResolvedLot], positions: pd.DataFrame | Non
         "total_cost": cost,
         "total_pnl": value - cost,
         "total_pnl_pct": pnl_pct,
-        "day_pnl": float(positions["day_pnl"].sum()),
+        "day_pnl": day_pnl,
+        "day_change_pct": day_pnl / (value - day_pnl) * 100 if value != day_pnl else None,
+        "benchmark_day_change_pct": spy_q["change_pct"],
         "benchmark": BENCHMARK,
         "benchmark_value": float(spy_value),
         "benchmark_pnl_pct": spy_pnl_pct,
