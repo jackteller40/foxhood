@@ -396,12 +396,14 @@ def get_run_events(root_run_id: str) -> list[dict]:
 
 
 def list_runs(user_id: int | None = None, limit: int = 20) -> list[dict]:
-    """One row per agent run, newest first, for the Trace tab's run picker."""
+    """One row per agent run, newest first, for the Trace page's run picker."""
     with connect() as conn:
         rows = conn.execute(
             """
             SELECT root_run_id,
-                   MAX(CASE WHEN event_type = 'run' THEN name END) AS run_name,
+                   MAX(CASE WHEN event_type = 'run' THEN name END)          AS run_name,
+                   MAX(CASE WHEN event_type = 'run' THEN status END)        AS run_status,
+                   MAX(CASE WHEN event_type = 'run' THEN parent_run_id END) AS resumes_run_id,
                    MIN(started_at)                          AS run_started,
                    MAX(COALESCE(ended_at, started_at))      AS run_ended,
                    COUNT(*)                                 AS events,

@@ -48,3 +48,14 @@ def current_brief_slot(now: datetime | None = None) -> BriefSlot:
 
     prev = cal.date_to_session(today, direction="previous")
     return BriefSlot("close", prev.date(), "market closed today; showing the last session's recap")
+
+def slot_for(session: str, now: datetime | None = None) -> BriefSlot:
+    """The most recent brief of the requested kind (for the pre-market / close toggle)."""
+    cur = current_brief_slot(now)
+    if session == cur.session:
+        return cur
+    if session == "close":
+        # It's a trading day before the close: the latest finished recap is the previous session's.
+        prev = _cal().date_to_session(pd.Timestamp(cur.brief_date) - pd.Timedelta(days=1), direction="previous")
+        return BriefSlot("close", prev.date(), "today's close isn't in yet; showing the previous session's recap")
+    return BriefSlot("premarket", cur.brief_date, "the pre-market brief for this session")

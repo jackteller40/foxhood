@@ -28,6 +28,8 @@ from core.async_utils import run_sync
 from core.config import settings
 from storage import db
 
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
 
 @dataclass
 class AgentResult:
@@ -81,9 +83,20 @@ async def arun_agent(user_id: int, question: str | None = None, task: str = "cha
                 graph = build_graph(make_model(), tools, build_system_prompt(user, catalog_text(skills)),
                                     policy=policy, checkpointer=checkpointer)
                 tracer = TraceHandler(run_id, user_id, {t.name for t in mcp_tools})
-                graph_input = (Command(resume=resume) if resume is not None else
-                               {"messages": [HumanMessage(question)], "tool_rounds": 0,
-                                "tool_calls_used": 0, "gate": [], "approvals": {}})
+                if resume is not None:
+                    graph_input = Command(resume=resume)
+                else:
+                    # If the thread ended on tool calls that never ran (approval abandoned, budget hit),
+                    # close them out first; the API requires a result for every tool call.
+                    snap = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+                    prior = (snap.values or {}).get("messages", []) if snap else []
+                    fillers = []
+                    if prior and isinstance(prior[-1], AIMessage) and prior[-1].tool_calls:
+                        fillers = [ToolMessage(content="NOT RUN: the user moved on before this action was approved.",
+                                               tool_call_id=tc["id"], name=tc["name"], status="error")
+                                   for tc in prior[-1].tool_calls]
+                    graph_input = {"messages": [*fillers, HumanMessage(question)], "tool_rounds": 0,
+                                   "tool_calls_used": 0, "gate": [], "approvals": {}}
                 result = await graph.ainvoke(graph_input, config={
                     "run_id": run_uuid,                    # same id in LangSmith and trace_events
                     "run_name": f"agent:{task}" + (":resume" if resume is not None else ""),
@@ -123,3 +136,21 @@ def run_agent(user_id: int, question: str | None = None, task: str = "chat", thr
               resume: dict | None = None, parent_run_id: str | None = None) -> AgentResult:
     """Sync wrapper for Streamlit and scripts."""
     return run_sync(arun_agent(user_id, question, task, thread_id, resume, parent_run_id))
+
+async def aget_thread_state(thread_id: str) -> dict:
+    """Saved messages for a chat thread, plus any approval it's paused on (survives restarts)."""
+    async with AsyncSqliteSaver.from_conn_string(str(settings.checkpoint_path)) as saver:
+        tup = await saver.aget_tuple({"configurable": {"thread_id": thread_id}})
+    if not tup:
+        return {"messages": [], "pending": []}
+    values = tup.checkpoint.get("channel_values", {}) or {}
+    messages = values.get("messages", []) or []
+    pending = []
+    if messages and isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
+        pending = [{"id": g["id"], "tool": g["name"], "args": g["args"], "reason": g["reason"]}
+                   for g in values.get("gate") or [] if g["action"] == "ask"]
+    return {"messages": messages, "pending": pending}
+
+
+def get_thread_state(thread_id: str) -> dict:
+    return run_sync(aget_thread_state(thread_id))
