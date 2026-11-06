@@ -17,13 +17,16 @@ class ApiSettings:
     api_jwt_secret: str
     allowed_emails: frozenset[str]
 
-
+def _async_url(url: str) -> str:
+      """SQLAlchemy async needs the driver in the URL; hosted Postgres usually gives plain postgresql://."""
+      return "postgresql+psycopg://" + url.split("://", 1)[1] if url.startswith(("postgres://", "postgresql://")) else url
+  
 def _load() -> ApiSettings:
     secret = os.getenv("API_JWT_SECRET", "")
     if len(secret) < 32:
         raise RuntimeError("API_JWT_SECRET must be set and at least 32 characters (openssl rand -hex 32).")
     return ApiSettings(
-        database_url=os.getenv("DATABASE_URL", "postgresql://foxhood:foxhood@localhost:5432/foxhood"),
+        database_url=_async_url(os.getenv("DATABASE_URL", "postgresql+psycopg://foxhood:foxhood@localhost:5432/foxhood")),
         api_jwt_secret=secret,
         allowed_emails=_email_set(os.getenv("ALLOWED_EMAILS", "")),
     )
