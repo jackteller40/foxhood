@@ -36,7 +36,7 @@ def seeding():
 
 def holdings_roundtrip():
     for u in users():
-        resolved = [resolve_lot(l) for l in db.holdings_as_lots(u["id"])]
+        resolved = [resolve_lot(lot) for lot in db.holdings_as_lots(u["id"])]
         s = metrics.portfolio_summary(resolved)
         print(f"{u['name']:12} value ${s['total_value']:,.0f} | largest {s['largest_position']} {s['largest_weight_pct']:.0f}%")
         print(f"{'':12} price return {s['total_pnl_pct']:6.1f}% vs SPY {s['benchmark_pnl_pct']:6.1f}%  "
@@ -48,7 +48,7 @@ def holdings_roundtrip():
 def schd_split():
     # SCHD did a 3-for-1 split in Oct 2024; Dan's dollar-amount lot from 2022 should show split x3
     dan = users()[2]
-    lot = next(l for l in db.holdings_as_lots(dan["id"]) if l.ticker == "SCHD")
+    lot = next(h for h in db.holdings_as_lots(dan["id"]) if h.ticker == "SCHD")
     r = resolve_lot(lot)
     print(f"paid ${r.price_paid:,.2f} | split x{r.split_factor:g} | "
           f"bought {r.shares_bought:,.2f} -> now {r.shares_now:,.2f} | cost ${r.cost_basis:,.2f}")
