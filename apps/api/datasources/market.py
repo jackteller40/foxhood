@@ -1,16 +1,14 @@
 "Prices, splits, quotes and company info from yfinance."
 from __future__ import annotations
 
-from datetime import date
+import logging
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
 
 from datasources.cache import cached
-
-import logging
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)  # hides the 404 noise from bad tickers

@@ -6,13 +6,16 @@ its nearest *recorded* ancestor (the root run, a subagent, etc.) so the trace tr
 from __future__ import annotations
 
 import json
+import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
 from storage import db
+
+log = logging.getLogger(__name__)
 
 MEMORY_TOOLS = {"recall_memory", "remember"}
 SKILL_TOOLS = {"load_skill"}
@@ -21,7 +24,7 @@ PREVIEW_CHARS = 2000
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def content_to_text(content: Any) -> str:
@@ -117,8 +120,8 @@ class TraceHandler(BaseCallbackHandler):
                 started_at=ev["started_at"], ended_at=now_iso(),
                 duration_ms=round((time.perf_counter() - ev["t0"]) * 1000, 1),
             )
-        except Exception:
-            pass
+        except Exception:  # tracing must never break a run, but a lost event should be visible
+            log.warning("Failed to record trace event %s (%s)", ev["name"], ev["event_type"], exc_info=True)
 
     # ---- chains: only remember parentage ----
     def on_chain_start(self, serialized, inputs, *, run_id, parent_run_id=None, **kwargs):

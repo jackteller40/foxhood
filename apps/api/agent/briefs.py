@@ -1,11 +1,12 @@
 """Daily briefs: one per user per trading day per session, cached in the briefs table."""
 from __future__ import annotations
 
+from langchain_core.messages import AIMessage
+
 from agent.runner import arun_agent
 from core.async_utils import run_sync
 from core.market_clock import BriefSlot, current_brief_slot
 from storage import db
-from langchain_core.messages import AIMessage
 
 LABELS = {"premarket": "pre-market brief", "close": "post-close recap"}
 

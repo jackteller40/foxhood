@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from datetime import date, datetime, timedelta
 
 import pandas as pd
 from langchain_core.tools import tool
-import threading
 
 from datasources import market
 from datasources.market import ET
@@ -102,7 +102,7 @@ def make_local_tools(user_id: int) -> list:
         """Per-position detail for the current user's holdings: shares, average cost, price,
         market value, portfolio weight %, price return %, total return %, and today's move.
         Use for questions about specific holdings, movers, or concentration."""
-        resolved, errors, positions = _portfolio()
+        _resolved, errors, positions = _portfolio()
         if positions.empty:
             return _dump({"positions": [], "lot_errors": errors})
         cols = ["ticker", "name", "sector", "lots", "shares", "avg_cost", "price", "market_value",

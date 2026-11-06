@@ -115,7 +115,7 @@ def portfolio_summary(resolved: list[ResolvedLot], positions: pd.DataFrame | Non
         "total_return_pct": tr_pct,
         "benchmark_total_return_pct": spy_tr_pct,
         "excess_total_return_pct": tr_pct - spy_tr_pct,
-        "num_positions": int(len(positions)),
+        "num_positions": len(positions),
         "largest_position": positions.iloc[0]["ticker"],
         "largest_weight_pct": float(positions.iloc[0]["weight_pct"]),
     }

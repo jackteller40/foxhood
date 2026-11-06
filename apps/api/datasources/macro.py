@@ -84,7 +84,7 @@ def get_macro_snapshot() -> dict:
 
         if sid == "CPIAUCSL":
             # The index level means nothing to a reader; lead with YoY inflation.
-            def yoy_at(d):
+            def yoy_at(d, s=s):
                 now_v, then_v = s.asof(d), s.asof(d - pd.Timedelta(days=365))
                 return None if pd.isna(now_v) or pd.isna(then_v) else (float(now_v) / float(then_v) - 1) * 100
 

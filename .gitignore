@@ -7,3 +7,9 @@ __pycache__/
 .streamlit/secrets.toml
 .DS_Store
 .cache/
+node_modules/
+.next/
+.env.local
+*.db-wal
+*.db-shm
+*.sqlite*

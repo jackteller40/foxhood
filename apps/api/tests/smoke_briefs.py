@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime
 
 from agent.briefs import get_or_create_brief
@@ -12,7 +13,6 @@ from agent.skills import discover_skills
 from core.market_clock import current_brief_slot
 from datasources.market import ET
 from storage import db
-import json
 
 EXPECTED_SKILL = {"premarket": "premarket-brief", "close": "post-close-recap"}
 
