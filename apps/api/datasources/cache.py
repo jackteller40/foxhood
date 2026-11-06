@@ -6,10 +6,13 @@ import hashlib
 import pickle
 import shutil
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
+
 from core.config import settings
+
 
 def _is_empty(value: Any) -> bool:
     if value is None:

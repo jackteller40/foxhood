@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
-from typing import Any, Iterator
+from datetime import UTC, date, datetime
+from typing import Any
 
 from core.config import settings
 
@@ -92,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id, created_at);
 # ---------- helpers ----------
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def _dumps(value: Any) -> str | None:

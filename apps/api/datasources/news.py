@@ -1,7 +1,7 @@
 """Company and market news from Finnhub(free tier: ~60 calls/min, North American companies)"""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import finnhub
 
@@ -34,7 +34,7 @@ def _normalize(items: list[dict], ticker: str | None, limit: int) -> list[dict]:
             "summary": (it.get("summary") or "")[:500],
             "source": it.get("source"),
             "url": it.get("url"),
-            "published": datetime.fromtimestamp(it.get("datetime", 0), tz=timezone.utc).isoformat(),
+            "published": datetime.fromtimestamp(it.get("datetime", 0), tz=UTC).isoformat(),
         })
         if len(out) >= limit:
             break

@@ -58,7 +58,7 @@ class Policy:
         self.unattended = unattended
 
     @classmethod
-    def load(cls, path: Path = POLICY_PATH, unattended: bool = False) -> "Policy":
+    def load(cls, path: Path = POLICY_PATH, unattended: bool = False) -> Policy:
         with open(path, encoding="utf-8") as f:
             return cls(yaml.safe_load(f) or {}, unattended=unattended)
 
