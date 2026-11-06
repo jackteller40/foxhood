@@ -1,6 +1,7 @@
 """Test setup: fixed secrets and a separate test database, migrated from scratch each session."""
 import base64
 import os
+import uuid
 from pathlib import Path
 
 import psycopg
@@ -33,3 +34,21 @@ def test_database():
     command.downgrade(cfg, "base")  # every session starts empty, and downgrade gets exercised too
     command.upgrade(cfg, "head")
     yield
+    
+@pytest.fixture
+async def session():
+    from db.session import SessionLocal
+    async with SessionLocal() as s:
+        yield s
+
+
+@pytest.fixture
+def make_user(session):
+    """Creates a fresh user (unique email) and returns a UserRepo bound to them."""
+    from db.repo import AdminRepo, UserRepo
+
+    async def _make():
+        user = await AdminRepo(session).get_or_create_user(f"{uuid.uuid4().hex[:10]}@example.com")
+        return UserRepo(session, user.id)
+
+    return _make
