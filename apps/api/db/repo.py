@@ -8,10 +8,11 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.crypto import field_aad, get_cipher
@@ -344,3 +345,38 @@ class AdminRepo:
                 counts[label] = (await self.s.execute(q)).scalar_one()
             out.append({"email": u.email, "created_at": u.created_at, "last_login_at": u.last_login_at, **counts})
         return out
+    
+    async def find_user(self, email: str) -> User | None:
+        q = select(User).where(User.email == normalize_email(email))
+        return (await self.s.execute(q)).scalar_one_or_none()
+
+    async def record_login(self, email: str, google_sub: str) -> User:
+        """Runs on every authenticated request, after the invite check. Creates the user on first
+        sign-in, links their Google account, marks the invite accepted, and refreshes last_login_at
+        at most hourly (so normal browsing doesn't write to the database on every request)."""
+        e = normalize_email(email)
+        now = utcnow()
+        user = await self.find_user(e)
+        changed = False
+        if user is None:
+            user = User(email=e, google_sub=google_sub, last_login_at=now)
+            self.s.add(user)
+            changed = True
+        else:
+            if not user.google_sub:
+                user.google_sub = google_sub
+                changed = True
+            if user.last_login_at is None or now - user.last_login_at > timedelta(hours=1):
+                user.last_login_at = now
+                changed = True
+        inv = await self.s.get(Invite, e)
+        if inv is not None and inv.accepted_at is None:
+            inv.accepted_at = now
+            changed = True
+        if changed:
+            try:
+                await self.s.commit()
+            except IntegrityError:  # two first requests raced to create the user; use the winner's row
+                await self.s.rollback()
+                user = await self.find_user(e)
+        return user

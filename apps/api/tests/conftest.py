@@ -15,7 +15,7 @@ TEST_DB_URL = os.environ.get("TEST_DATABASE_URL",
 
 # Set before the app is imported; the real .env never overrides these (load_dotenv doesn't override).
 os.environ["API_JWT_SECRET"] = "test-secret-" + "x" * 40
-os.environ["ALLOWED_EMAILS"] = "test@example.com"
+#os.environ["ALLOWED_EMAILS"] = "test@example.com"
 os.environ["FOXHOOD_DATA_KEYS"] = "v1:" + base64.b64encode(b"\x07" * 32).decode()
 os.environ["DATABASE_URL"] = TEST_DB_URL
 os.environ["DB_NULLPOOL"] = "1"
@@ -50,5 +50,27 @@ def make_user(session):
     async def _make():
         user = await AdminRepo(session).get_or_create_user(f"{uuid.uuid4().hex[:10]}@example.com")
         return UserRepo(session, user.id)
+
+    return _make
+
+@pytest.fixture
+async def client():
+    import httpx
+
+    from app.main import app
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+@pytest.fixture
+def invited_user(session):
+    """Invites a fresh email and returns (auth headers, email, google_sub) for that user."""
+    from db.repo import AdminRepo
+    from tests.helpers import bearer, make_token
+
+    async def _make(name: str = "Test User"):
+        email, sub = f"{uuid.uuid4().hex[:10]}@example.com", f"g-{uuid.uuid4().hex[:12]}"
+        await AdminRepo(session).invite(email, invited_by="test")
+        return bearer(make_token(email, sub, name=name)), email, sub
 
     return _make

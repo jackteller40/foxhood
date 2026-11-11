@@ -1,19 +1,26 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-
-// Invite list: only these Google accounts can sign in.
-const allowed = new Set(
-  (process.env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean),
-);
+import { checkSignIn } from "@/lib/internal";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google], // reads AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET automatically
-  pages: { signIn: "/", error: "/" }, // send refusals back to the landing page
+  providers: [Google],
+  pages: { signIn: "/", error: "/" },
   callbacks: {
-    signIn({ profile }) {
+    // The API's invite list decides who gets in.
+    async signIn({ account, profile }) {
       const email = profile?.email?.toLowerCase();
       const verified = (profile as { email_verified?: boolean } | undefined)?.email_verified === true;
-      return Boolean(email && verified && allowed.has(email));
+      if (account?.provider !== "google" || !email || !verified) return false;
+      return checkSignIn(email, account.providerAccountId);
+    },
+    // Keep the Google account id (stable, unlike email) in the session.
+    jwt({ token, account }) {
+      if (account?.provider === "google") token.googleSub = account.providerAccountId;
+      return token;
+    },
+    session({ session, token }) {
+      session.user.googleSub = typeof token.googleSub === "string" ? token.googleSub : undefined;
+      return session;
     },
   },
 });

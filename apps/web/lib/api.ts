@@ -5,11 +5,11 @@ import { auth } from "@/auth";
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
 const secret = new TextEncoder().encode(process.env.API_JWT_SECRET);
 
-// A 5-minute token proving to FastAPI who the signed-in user is.
-async function apiToken(email: string, name?: string | null) {
+// A 5-minute token proving to the API who the signed-in user is.
+async function apiToken(googleSub: string, email: string, name?: string | null) {
   return new SignJWT({ email, name: name ?? undefined })
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject(email)
+    .setSubject(googleSub)
     .setIssuer("foxhood-web")
     .setAudience("foxhood-api")
     .setIssuedAt()
@@ -20,10 +20,11 @@ async function apiToken(email: string, name?: string | null) {
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const session = await auth();
   const email = session?.user?.email;
-  if (!email) throw new Error("Not signed in");
+  const googleSub = session?.user?.googleSub;
+  if (!email || !googleSub) throw new Error("Not signed in");
   return fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { ...init.headers, Authorization: `Bearer ${await apiToken(email, session.user?.name)}` },
+    headers: { ...init.headers, Authorization: `Bearer ${await apiToken(googleSub, email, session.user?.name)}` },
     cache: "no-store",
   });
 }

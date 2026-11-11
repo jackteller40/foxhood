@@ -1,15 +1,42 @@
 """Foxhood API."""
 from __future__ import annotations
 
-from typing import Annotated
+import logging
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy import text
 
-from app.auth import CurrentUser, get_current_user
+from app.routes import internal, user_data
+from db.crypto import DecryptionError
+from db.repo import NotFound
 from db.session import engine
 
-app = FastAPI(title="Foxhood API", version="0.1.0")
+log = logging.getLogger("foxhood.api")
+
+app = FastAPI(title="Foxhood API", version="0.2.0")
+app.include_router(user_data.router)
+app.include_router(internal.router)
+
+
+@app.exception_handler(NotFound)
+async def _not_found(_: Request, __: NotFound) -> JSONResponse:
+    return JSONResponse({"detail": "Not found"}, status_code=404)
+
+
+@app.exception_handler(DecryptionError)
+async def _integrity_failure(_: Request, exc: DecryptionError) -> JSONResponse:
+    log.error("Decryption failed: %s", exc)
+    return JSONResponse({"detail": "Stored data failed an integrity check."}, status_code=500)
+
+
+@app.exception_handler(ValueError)
+async def _invalid_input(_: Request, exc: ValueError) -> JSONResponse:
+    if isinstance(exc, ValidationError):  # a response failed validation: our bug, not the caller's
+        log.error("Response validation failed", exc_info=exc)
+        return JSONResponse({"detail": "Internal error"}, status_code=500)
+    return JSONResponse({"detail": str(exc)}, status_code=422)
 
 
 @app.get("/health")
@@ -21,8 +48,3 @@ async def health() -> dict:
     except Exception as e:
         db = f"error: {type(e).__name__}"
     return {"status": "ok", "db": db}
-
-
-@app.get("/me")
-def me(user: Annotated[CurrentUser, Depends(get_current_user)]) -> dict:
-    return {"email": user.email, "name": user.name}
