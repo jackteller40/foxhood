@@ -1,30 +1,33 @@
-"""Local trace log: a LangChain callback handler that writes linked events to trace_events.
+"""Trace log: a LangChain callback handler that collects linked events for one agent run.
 
 LangChain gives every LLM call and tool call its own run_id plus a parent_run_id. We record
 LLM/tool events and skip LangGraph's internal node chains, re-pointing each event's parent to
-its nearest *recorded* ancestor (the root run, a subagent, etc.) so the trace tree stays readable."""
+its nearest *recorded* ancestor (the root run, a subagent, etc.) so the trace tree stays readable.
+
+Events are buffered in memory and saved (encrypted) once, when the run ends: one DB write per run
+instead of one per event. Token usage is totalled per model at the same time."""
 from __future__ import annotations
 
 import json
-import logging
 import time
-from datetime import UTC, datetime
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
-from storage import db
-
-log = logging.getLogger(__name__)
+from db.models import utcnow
 
 MEMORY_TOOLS = {"recall_memory", "remember"}
 SKILL_TOOLS = {"load_skill"}
 SUBAGENT_TOOLS = {"delegate_news_analysis"}
 PREVIEW_CHARS = 2000
 
-
-def now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds")
+# The handler for the run in progress, so graph nodes (the permission gate) can add events
+# without threading the handler through every function. asyncio tasks inherit it automatically.
+_active: ContextVar[TraceHandler | None] = ContextVar("foxhood_trace", default=None)
 
 
 def content_to_text(content: Any) -> str:
@@ -66,14 +69,32 @@ def _looks_like_error(text: str) -> bool:
     return isinstance(obj, dict) and "error" in obj
 
 
+@contextmanager
+def activate(handler: TraceHandler) -> Iterator[None]:
+    token = _active.set(handler)
+    try:
+        yield
+    finally:
+        _active.reset(token)
+
+
+def record_event(event_type: str, name: str, *, input: Any = None, output: Any = None,
+                 status: str = "ok", error: str | None = None) -> None:
+    """Add a one-off event (e.g. a permission decision) to the active run's trace, if any."""
+    handler = _active.get()
+    if handler is not None:
+        handler.add_event(event_type, name, input=input, output=output, status=status, error=error)
+
+
 class TraceHandler(BaseCallbackHandler):
-    run_inline = True     # write events in order, on the calling thread
+    run_inline = True     # handle events in order, on the calling thread
     raise_error = False   # tracing must never break a run
 
-    def __init__(self, root_run_id: str, user_id: int | None, mcp_tool_names: set[str] | None = None):
+    def __init__(self, root_run_id: str, mcp_tool_names: set[str] | None = None):
         self.root = root_run_id
-        self.user_id = user_id
         self.mcp_tools = mcp_tool_names or set()
+        self.events: list[dict] = []               # finished events, ready for UserRepo.add_trace_events
+        self.usage: dict[str, list[int]] = {}      # model -> [input_tokens, output_tokens]
         self._parent_of: dict[str, str | None] = {}
         self._recorded: set[str] = {root_run_id}
         self._open: dict[str, dict] = {}
@@ -98,30 +119,38 @@ class TraceHandler(BaseCallbackHandler):
             return "subagent"
         return "tool"
 
+    def add_event(self, event_type: str, name: str, *, input: Any = None, output: Any = None,
+                  status: str = "ok", error: str | None = None) -> None:
+        now = utcnow()
+        self.events.append({
+            "run_id": str(uuid.uuid4()), "parent_run_id": self.root, "root_run_id": self.root,
+            "event_type": event_type, "name": name, "status": status,
+            "input": input, "output": output, "error": error,
+            "started_at": now, "ended_at": now, "duration_ms": 0.0,
+        })
+
     def _start(self, run_id, parent_run_id, event_type: str, name: str, input: Any) -> None:
         rid = str(run_id)
         self._parent_of[rid] = str(parent_run_id) if parent_run_id else None
         self._open[rid] = {
             "event_type": event_type, "name": name, "input": input,
             "parent": self._logical_parent(parent_run_id),
-            "started_at": now_iso(), "t0": time.perf_counter(),
+            "started_at": utcnow(), "t0": time.perf_counter(),
         }
         self._recorded.add(rid)  # children that finish before us still link to us
 
-    def _end(self, run_id, output: Any = None, status: str = "ok", error: str | None = None) -> None:
+    def _end(self, run_id, output: Any = None, status: str = "ok", error: str | None = None) -> dict | None:
         ev = self._open.pop(str(run_id), None)
         if not ev:
-            return
-        try:
-            db.log_trace_event(
-                run_id=str(run_id), parent_run_id=ev["parent"], root_run_id=self.root,
-                user_id=self.user_id, event_type=ev["event_type"], name=ev["name"],
-                input=ev["input"], output=output, status=status, error=error,
-                started_at=ev["started_at"], ended_at=now_iso(),
-                duration_ms=round((time.perf_counter() - ev["t0"]) * 1000, 1),
-            )
-        except Exception:  # tracing must never break a run, but a lost event should be visible
-            log.warning("Failed to record trace event %s (%s)", ev["name"], ev["event_type"], exc_info=True)
+            return None
+        self.events.append({
+            "run_id": str(run_id), "parent_run_id": ev["parent"], "root_run_id": self.root,
+            "event_type": ev["event_type"], "name": ev["name"], "status": status,
+            "input": ev["input"], "output": output, "error": error,
+            "started_at": ev["started_at"], "ended_at": utcnow(),
+            "duration_ms": round((time.perf_counter() - ev["t0"]) * 1000, 1),
+        })
+        return ev
 
     # ---- chains: only remember parentage ----
     def on_chain_start(self, serialized, inputs, *, run_id, parent_run_id=None, **kwargs):
@@ -142,6 +171,7 @@ class TraceHandler(BaseCallbackHandler):
     def on_llm_end(self, response, *, run_id, **kwargs):
         out: dict[str, Any] = {}
         status, error = "ok", None
+        model, usage = None, None
         try:
             gen = response.generations[0][0]
             msg = getattr(gen, "message", None)
@@ -149,15 +179,23 @@ class TraceHandler(BaseCallbackHandler):
             if msg is not None:
                 out["tool_calls"] = [{"name": tc["name"], "args": tc["args"]}
                                      for tc in (getattr(msg, "tool_calls", None) or [])]
+                meta = getattr(msg, "response_metadata", None) or {}
+                model = meta.get("model_name") or meta.get("model")
                 usage = getattr(msg, "usage_metadata", None)
                 if usage:
                     out["usage"] = {k: usage.get(k) for k in ("input_tokens", "output_tokens", "total_tokens")}
-                out["stop_reason"] = (getattr(msg, "response_metadata", None) or {}).get("stop_reason")
+                out["stop_reason"] = meta.get("stop_reason")
                 if out["stop_reason"] == "max_tokens":
                     status, error = "error", "Output truncated (stop_reason=max_tokens)"
         except Exception as e:
             out["parse_error"] = str(e)
-        self._end(run_id, out, status=status, error=error)
+        ev = self._end(run_id, out, status=status, error=error)
+        if usage:
+            key = str(model or (ev or {}).get("name") or "llm")
+            totals = self.usage.setdefault(key, [0, 0])
+            totals[0] += int(usage.get("input_tokens") or 0)
+            totals[1] += int(usage.get("output_tokens") or 0)
+
     def on_llm_error(self, error, *, run_id, **kwargs):
         self._end(run_id, status="error", error=repr(error))
 

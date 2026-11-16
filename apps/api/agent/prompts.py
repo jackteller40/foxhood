@@ -55,9 +55,9 @@ BUDGET_NOTE = (
 def build_system_prompt(user: dict, skills_catalog: str) -> str:
     return BASE_SYSTEM_PROMPT.format(
         now=datetime.now(ET).strftime("%A, %B %d, %Y, %I:%M %p"),
-        name=user["name"],
+        name=user.get("name") or "not set",
         persona=user.get("persona") or "n/a",
-        risk=user["risk_tolerance"],
+        risk=user.get("risk_tolerance") or "n/a",
         horizon=user.get("horizon") or "n/a",
         interests=", ".join(user.get("interests") or []) or "n/a",
         skills=skills_catalog,

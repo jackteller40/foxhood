@@ -10,7 +10,6 @@ The LLM decides every step; the policy decides whether each requested tool may r
 from __future__ import annotations
 
 import asyncio
-import uuid
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
@@ -21,8 +20,7 @@ from langgraph.types import interrupt
 
 from agent.permissions import Decision, Policy
 from agent.prompts import BUDGET_NOTE
-from agent.tracing import content_to_text
-from storage import db
+from agent.tracing import content_to_text, record_event
 
 MAX_TOOL_ROUNDS = 10
 
@@ -47,17 +45,10 @@ def final_text(messages: list) -> str:
     return "(no answer)"
 
 
-def _log_permission(config: RunnableConfig, entry: dict, status: str, extra: dict | None = None) -> None:
-    md = (config or {}).get("metadata") or {}
-    root = md.get("app_run_id")
-    if not root:
-        return
-    db.log_trace_event(
-        run_id=str(uuid.uuid4()), parent_run_id=root, root_run_id=root, user_id=md.get("user_id"),
-        event_type="permission", name=entry["name"],
-        input={"args": entry["args"], "rule": entry["rule"]},
-        output={"reason": entry["reason"], **(extra or {})}, status=status,
-    )
+def _log_permission(entry: dict, status: str, extra: dict | None = None) -> None:
+    record_event("permission", entry["name"], status=status,
+                 input={"args": entry["args"], "rule": entry["rule"]},
+                 output={"reason": entry["reason"], **(extra or {})})
 
 
 def build_graph(model, tools: list, system_prompt: str, max_tool_rounds: int = MAX_TOOL_ROUNDS,
@@ -84,9 +75,9 @@ def build_graph(model, tools: list, system_prompt: str, max_tool_rounds: int = M
                      "action": d.action, "rule": d.rule, "reason": d.reason}
             gate.append(entry)
             if d.action == "deny":
-                _log_permission(config, entry, "denied")
+                _log_permission(entry, "denied")
             elif d.action == "ask":
-                _log_permission(config, entry, "pending")
+                _log_permission(entry, "pending")
         return {"gate": gate, "approvals": {}, "tool_calls_used": used}
 
     async def approval_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -103,7 +94,7 @@ def build_graph(model, tools: list, system_prompt: str, max_tool_rounds: int = M
             d = decisions.get(g["id"]) or {}
             ok = bool(d.get("approved"))
             approvals[g["id"]] = {"approved": ok, "by": by, "note": d.get("note")}
-            _log_permission(config, g, "approved" if ok else "rejected", {"by": by, "note": d.get("note")})
+            _log_permission(g, "approved" if ok else "rejected", {"by": by, "note": d.get("note")})
         return {"approvals": approvals}
 
     async def tools_node(state: AgentState, config: RunnableConfig) -> dict:

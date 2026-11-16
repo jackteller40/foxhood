@@ -16,16 +16,22 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 
+def include_name(name, type_, parent_names) -> bool:
+    """Only manage our own tables. LangGraph creates and migrates its checkpoint tables itself."""
+    return type_ != "table" or name in target_metadata.tables
+
 
 def run_migrations_offline() -> None:
     context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata,
-                      literal_binds=True, dialect_opts={"paramstyle": "named"}, compare_type=True)
+                      literal_binds=True, dialect_opts={"paramstyle": "named"}, compare_type=True,
+                      include_name=include_name)
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True,
+                      include_name=include_name)
     with context.begin_transaction():
         context.run_migrations()
 
