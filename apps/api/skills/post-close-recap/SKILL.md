@@ -13,7 +13,7 @@ Use after the market closes, when the user asks for their daily recap or how tod
 3. `get_watchlist_snapshot`.
 4. Pick the 2-4 biggest movers by absolute day move across holdings and watchlist (always include
    anything that moved more than 3%). Send them in ONE `delegate_news_analysis` call with
-   focus "explain today's price move".
+   focus "explain_move".
 5. `get_macro_snapshot`, and `get_upcoming_releases` with days=3 for upcoming catalysts.
 
 ## Write (markdown, 300-400 words, these sections in order)

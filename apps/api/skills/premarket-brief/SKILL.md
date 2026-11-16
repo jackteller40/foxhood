@@ -13,7 +13,7 @@ Use before or during the trading day, when the user asks for their morning or pr
 3. `get_watchlist_snapshot`.
 4. `get_upcoming_releases` with days=2.
 5. ONE `delegate_news_analysis` call with the 3-5 largest holdings plus up to 2 watchlist names,
-   focus "recent news that could move the stock today".
+   focus "recent_newscd ~/foxhood".
 6. `get_macro_snapshot`.
 
 ## Timing

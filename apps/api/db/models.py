@@ -130,3 +130,11 @@ class Usage(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal(0))
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    
+class MarketCache(Base):
+    """Shared cache of PUBLIC market data (prices, macro, news analysis). Never user data."""
+    __tablename__ = "market_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)   # sha256 of function + public args
+    value: Mapped[str] = mapped_column(Text)                           # JSON (TEXT, so NaN is allowed)
+    expires_at: Mapped[datetime] = mapped_column(TS, index=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

@@ -5,7 +5,9 @@ LangGraph loop, then its findings are converted to a validated Pydantic schema a
 to the main agent as JSON."""
 from __future__ import annotations
 
+import asyncio
 import json
+from datetime import datetime
 from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -18,9 +20,24 @@ from agent.models import make_model
 from agent.tools import _dump, _performance
 from agent.tracing import content_to_text
 from datasources import news
+from datasources.cache import MISS, cache_get, cache_set, make_key
+from datasources.market import ET
 
 MAX_TICKERS = 8
 SUBAGENT_TOOL_ROUNDS = 4
+
+Focus = Literal["explain_move", "recent_news", "deep_dive"]
+FOCUS_TEXT = {
+    "explain_move": "explain today's price move",
+    "recent_news": "recent news that could move the stock today",
+    "deep_dive": "recent developments and sentiment, in more depth",
+}
+NEWS_TTL_SECONDS = {"explain_move": 2 * 3600, "recent_news": 2 * 3600, "deep_dive": 6 * 3600}
+
+
+def _news_key(ticker: str, focus: str) -> str:
+    """Shared across ALL users: ticker + focus + today's date (ET). No user data in it."""
+    return make_key("news_analysis.v1", ticker, focus, datetime.now(ET).date().isoformat())
 
 
 # ---------- output schema ----------
@@ -127,16 +144,43 @@ async def run_news_analyst(tickers: list[str], focus: str, config: RunnableConfi
 
 def make_news_subagent_tool():
     @tool
-    async def delegate_news_analysis(tickers: list[str], focus: str, config: RunnableConfig) -> str:
-        """Delegate news research to the news analyst subagent. It reads recent news for each
-        ticker, filters out market roundups and passing mentions, and returns per ticker: summary,
-        sentiment, relevance (0-3), whether the news explains the price move, and up to 3 key
-        headlines with URLs. Send ALL tickers in ONE call (max 8). `focus` says what to look for,
-        e.g. "explain today's price move"."""
+    async def delegate_news_analysis(tickers: list[str], focus: Focus, config: RunnableConfig) -> str:
+        """Delegate news research to the news analyst subagent. For each ticker it returns a summary,
+        sentiment, relevance (0-3), whether the news explains the price move, and up to 2 key
+        headlines with URLs. Send ALL tickers in ONE call (max 8). focus: "explain_move" (why it
+        moved today), "recent_news" (what could move it today), or "deep_dive" (one stock in depth).
+        Results are shared across users for the day, so repeated tickers come back instantly."""
         clean = list(dict.fromkeys(t.strip().upper() for t in tickers if t and t.strip()))[:MAX_TICKERS]
         if not clean:
             return json.dumps({"error": "No tickers given."})
-        report = await run_news_analyst(clean, focus, config)
-        return report.model_dump_json()
+
+        cached: dict[str, TickerNews] = {}
+        missing: list[str] = []
+        for t in clean:
+            hit = await asyncio.to_thread(cache_get, _news_key(t, focus))
+            if hit is MISS:
+                missing.append(t)
+            else:
+                cached[t] = TickerNews.model_validate(hit)
+
+        fresh: dict[str, TickerNews] = {}
+        notes, structured = None, True
+        if missing:
+            report = await run_news_analyst(missing, FOCUS_TEXT[focus], config)
+            if report.structured:
+                for item in report.tickers:
+                    t = item.ticker.strip().upper()
+                    if t in missing:
+                        fresh[t] = item
+                        await asyncio.to_thread(cache_set, _news_key(t, focus),
+                                                item.model_dump(mode="json"), NEWS_TTL_SECONDS[focus])
+            else:  # plain-text fallback: return it, but don't cache it
+                notes, structured = report.notes, False
+
+        ordered = [cached.get(t) or fresh.get(t) for t in clean]
+        out = NewsReport(tickers=[x for x in ordered if x is not None], notes=notes, structured=structured)
+        payload = out.model_dump(mode="json")
+        payload["from_cache"] = sorted(cached)
+        return json.dumps(payload)
 
     return delegate_news_analysis
