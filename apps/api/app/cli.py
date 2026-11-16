@@ -11,9 +11,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 
+from db.demo_data import DEMO_USERS  # the POC's synthetic personas (moves into db/ in M2)
 from db.repo import AdminRepo, UserRepo
 from db.session import SessionLocal
-from storage.seed_demo import DEMO_USERS  # the POC's synthetic personas (moves into db/ in M2)
 
 PERSONAS = {"aggressive": 0, "balanced": 1, "income": 2}
 

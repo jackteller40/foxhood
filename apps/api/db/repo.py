@@ -9,14 +9,16 @@ import re
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.crypto import field_aad, get_cipher
-from db.models import Holding, Invite, Memory, User, WatchlistItem, utcnow
+from db.models import Brief, Holding, Invite, Memory, TraceEvent, Usage, User, WatchlistItem, utcnow
 
 RISK_LEVELS = {"low", "medium", "high"}
 MEMORY_KINDS = {"preference", "fact", "brief_takeaway"}
@@ -24,6 +26,15 @@ HOLDING_SOURCES = {"manual", "csv", "agent", "seed"}
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,9}$")
 DEFAULT_PROFILE: dict[str, Any] = {"name": None, "persona": None, "risk_tolerance": "medium",
                                    "horizon": None, "interests": []}
+
+BRIEF_SESSIONS = {"premarket", "close"}
+EVENT_TYPES = {"run", "llm", "tool", "mcp", "subagent", "skill", "memory", "permission", "error"}
+ET = ZoneInfo("America/New_York")
+
+
+def start_of_today_et() -> datetime:
+    """Midnight US/Eastern today: daily spending caps reset here."""
+    return datetime.now(ET).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class NotFound(Exception):
@@ -87,6 +98,15 @@ class MemoryRecord:
     content: str
     tags: list[str]
     source_run_id: str | None
+    created_at: datetime
+    
+@dataclass(frozen=True)
+class BriefRecord:
+    id: uuid.UUID
+    brief_date: date
+    session: str
+    content: str
+    run_id: str | None
     created_at: datetime
 
 
@@ -277,6 +297,114 @@ class UserRepo:
         await self.s.delete(await self._get_owned(Memory, memory_id))
         await self.s.commit()
 
+        # ---- briefs ----
+    def _brief(self, row: Brief) -> BriefRecord:
+        return BriefRecord(row.id, row.brief_date, row.session,
+                           self._dec("briefs", "content", row.id, row.content_enc), row.run_id, row.created_at)
+
+    async def get_brief(self, brief_date: date, session: str) -> BriefRecord | None:
+        q = select(Brief).where(Brief.user_id == self.user_id, Brief.brief_date == brief_date,
+                                Brief.session == session)
+        row = (await self.s.execute(q)).scalar_one_or_none()
+        return self._brief(row) if row else None
+
+    async def list_briefs(self, limit: int = 30) -> list[BriefRecord]:
+        q = (select(Brief).where(Brief.user_id == self.user_id)
+             .order_by(Brief.brief_date.desc(), Brief.created_at.desc()).limit(limit))
+        return [self._brief(r) for r in (await self.s.execute(q)).scalars().all()]
+
+    async def save_brief(self, brief_date: date, session: str, content: str, run_id: str | None = None) -> BriefRecord:
+        """One brief per user per trading day per session; saving again replaces it."""
+        if session not in BRIEF_SESSIONS:
+            raise ValueError(f"session must be one of {sorted(BRIEF_SESSIONS)}")
+        q = select(Brief).where(Brief.user_id == self.user_id, Brief.brief_date == brief_date,
+                                Brief.session == session)
+        row = (await self.s.execute(q)).scalar_one_or_none()
+        if row is None:
+            bid = uuid.uuid4()
+            row = Brief(id=bid, user_id=self.user_id, brief_date=brief_date, session=session, run_id=run_id,
+                        content_enc=self._enc("briefs", "content", bid, content))
+            self.s.add(row)
+        else:
+            row.content_enc = self._enc("briefs", "content", row.id, content)
+            row.run_id = run_id
+            row.created_at = utcnow()
+        await self.s.commit()
+        return self._brief(row)
+
+    # ---- traces (inputs, outputs and errors encrypted; bound to each event's unique run_id) ----
+    def _trace_enc(self, column: str, run_id: str, value: Any) -> str | None:
+        return None if value is None else self._enc("trace_events", column, run_id, value)
+
+    def _trace_dec(self, column: str, run_id: str, token: str | None) -> Any:
+        return None if token is None else self._dec("trace_events", column, run_id, token)
+
+    async def add_trace_events(self, events: list[dict]) -> None:
+        """Bulk-save one run's events (the runner calls this once, when the run ends)."""
+        rows = []
+        for e in events:
+            if e["event_type"] not in EVENT_TYPES:
+                raise ValueError(f"Unknown event_type {e['event_type']!r}")
+            rid = str(e["run_id"])
+            rows.append(TraceEvent(
+                run_id=rid, parent_run_id=e.get("parent_run_id"), root_run_id=str(e["root_run_id"]),
+                user_id=self.user_id, event_type=e["event_type"], name=str(e["name"])[:128],
+                status=e.get("status", "ok"),
+                input_enc=self._trace_enc("input", rid, e.get("input")),
+                output_enc=self._trace_enc("output", rid, e.get("output")),
+                error_enc=self._trace_enc("error", rid, e.get("error")),
+                started_at=e["started_at"], ended_at=e.get("ended_at"), duration_ms=e.get("duration_ms"),
+            ))
+        self.s.add_all(rows)
+        await self.s.commit()
+
+    async def get_run_events(self, root_run_id: str) -> list[dict]:
+        q = (select(TraceEvent)
+             .where(TraceEvent.user_id == self.user_id, TraceEvent.root_run_id == root_run_id)
+             .order_by(TraceEvent.started_at, TraceEvent.id))
+        rows = (await self.s.execute(q)).scalars().all()
+        if not rows:
+            raise NotFound("trace_events")
+        return [{
+            "run_id": r.run_id, "parent_run_id": r.parent_run_id, "root_run_id": r.root_run_id,
+            "event_type": r.event_type, "name": r.name, "status": r.status,
+            "input": self._trace_dec("input", r.run_id, r.input_enc),
+            "output": self._trace_dec("output", r.run_id, r.output_enc),
+            "error": self._trace_dec("error", r.run_id, r.error_enc),
+            "started_at": r.started_at, "ended_at": r.ended_at, "duration_ms": r.duration_ms,
+        } for r in rows]
+
+    async def list_runs(self, limit: int = 20) -> list[dict]:
+        """One summary row per agent run, newest first (no encrypted content needed)."""
+        t = TraceEvent
+        q = (select(
+                t.root_run_id,
+                func.max(case((t.event_type == "run", t.name))).label("run_name"),
+                func.max(case((t.event_type == "run", t.status))).label("run_status"),
+                func.max(case((t.event_type == "run", t.parent_run_id))).label("resumes_run_id"),
+                func.min(t.started_at).label("started_at"),
+                func.max(func.coalesce(t.ended_at, t.started_at)).label("ended_at"),
+                func.count().label("events"),
+                func.count().filter(t.status == "error").label("errors"),
+                func.count().filter(t.status == "denied").label("denials"))
+             .where(t.user_id == self.user_id)
+             .group_by(t.root_run_id)
+             .order_by(func.min(t.started_at).desc())
+             .limit(limit))
+        return [dict(r._mapping) for r in (await self.s.execute(q)).all()]
+
+    # ---- usage (plaintext: token counts and cost reveal nothing about holdings) ----
+    async def add_usage(self, run_id: str, model: str, input_tokens: int, output_tokens: int,
+                        cost_usd: Decimal | float = Decimal(0)) -> None:
+        self.s.add(Usage(user_id=self.user_id, run_id=run_id, model=model[:64], input_tokens=int(input_tokens),
+                         output_tokens=int(output_tokens), cost_usd=Decimal(str(cost_usd))))
+        await self.s.commit()
+
+    async def spent_today(self) -> Decimal:
+        q = (select(func.coalesce(func.sum(Usage.cost_usd), 0))
+             .where(Usage.user_id == self.user_id, Usage.created_at >= start_of_today_et()))
+        return Decimal((await self.s.execute(q)).scalar_one())
+    
     # ---- account ----
     async def export(self) -> dict:
         """Everything stored about this user, decrypted. (Briefs and traces join this in M2.)"""
@@ -286,6 +414,7 @@ class UserRepo:
             "holdings": [asdict(h) for h in await self.list_holdings()],
             "watchlist": [asdict(w) for w in await self.list_watchlist()],
             "memories": [asdict(m) for m in await self.list_memories(limit=10_000)],
+            "briefs": [asdict(b) for b in await self.list_briefs(limit=10_000)],
         })
 
     async def delete_account(self) -> None:
@@ -297,6 +426,10 @@ class UserRepo:
 class AdminRepo:
     def __init__(self, session: AsyncSession):
         self.s = session
+        
+    async def global_spent_today(self) -> Decimal:
+        q = select(func.coalesce(func.sum(Usage.cost_usd), 0)).where(Usage.created_at >= start_of_today_et())
+        return Decimal((await self.s.execute(q)).scalar_one())
 
     async def invite(self, email: str, invited_by: str | None = None) -> Invite:
         e = normalize_email(email)

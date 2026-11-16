@@ -1,11 +1,5 @@
-"""Create three fake demo users. Run from the repo root:  python -m storage.seed_demo --reset"""
-from __future__ import annotations
-
-import argparse
+"""Synthetic demo personas (made-up people, made-up portfolios), loaded with `app.cli seed-demo`."""
 from datetime import date
-
-from core.config import settings
-from storage import db
 
 DEMO_USERS = [
     {
@@ -71,39 +65,3 @@ DEMO_USERS = [
         ],
     },
 ]
-
-
-def _wipe_db() -> None:
-    for suffix in ("", "-wal", "-shm"):
-        settings.db_path.with_name(settings.db_path.name + suffix).unlink(missing_ok=True)
-
-
-def seed(reset: bool = False) -> list[int]:
-    if reset:
-        _wipe_db()
-    db.init_db()
-    existing = db.list_users()
-    if existing and not reset:
-        print("Users already exist; run with --reset to rebuild.")
-        return [u["id"] for u in existing]
-
-    ids = []
-    for u in DEMO_USERS:
-        uid = db.create_user(u["name"], u["risk_tolerance"], u["horizon"], u["interests"], u["persona"])
-        for h in u["holdings"]:
-            db.add_holding(uid, **h)
-        for ticker, note in u["watchlist"]:
-            db.add_to_watchlist(uid, ticker, note)
-        for m in u["memories"]:
-            db.add_memory(uid, source_run_id="seed", **m)
-        ids.append(uid)
-    return ids
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--reset", action="store_true", help="delete app.db and reseed")
-    args = parser.parse_args()
-    seed(reset=args.reset)
-    for u in db.list_users():
-        print(f"{u['id']}: {u['name']} ({u['persona']}), risk={u['risk_tolerance']}, interests={u['interests']}")
