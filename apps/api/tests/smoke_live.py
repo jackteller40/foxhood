@@ -20,11 +20,13 @@ from db.session import SessionLocal
 
 QUESTION = "Any notable news on AAPL today? Keep it to two sentences."
 SMOKE_EMAIL = "smoke-test@foxhood.local"
+streamed: list[str] = []
 
 
 def show(ev: dict) -> None:
     kind = ev["type"]
     if kind == "token":
+        streamed.append(ev["text"])
         print(ev["text"], end="", flush=True)
     elif kind == "tool_start":
         print(f"\n  [tool] {ev['name']} ...", flush=True)
@@ -53,11 +55,19 @@ async def main() -> int:
         user = await AdminRepo(s).get_or_create_user(SMOKE_EMAIL)
 
     for attempt in (1, 2):
+        streamed.clear()
         print(f"\n=== Run {attempt}: {QUESTION}")
         r = await arun_agent(user.id, QUESTION, on_event=show)
         hits = news_cache_hits(r)
         note = "news subagent not called" if hits is None else f"news from cache: {hits}"
         print(f"\n--> status={r.status}, {r.duration_s}s, {note}")
+        joined = "".join(streamed)
+        print(f"--> streamed text identical to saved answer: {joined == r.answer}")
+        if joined != r.answer:
+            i = next((k for k, (a, b) in enumerate(zip(joined, r.answer)) if a != b), min(len(joined), len(r.answer)))
+            print(f"    first difference at char {i}: streamed {joined[i-15:i+15]!r} vs saved {r.answer[i-15:i+15]!r}")
+            near = [t for t in streamed if t.strip() in ("%", "to", "weight", "'s")][:8]
+            print(f"    chunks around it: {near!r}")
 
     async with SessionLocal() as s:
         spent = await UserRepo(s, user.id).spent_today()
