@@ -2,6 +2,7 @@
 no way to address another user's data from here; someone else's id simply returns 404."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Literal
 
@@ -22,6 +23,7 @@ from app.schemas import (
     WatchIn,
     WatchOut,
 )
+from portfolio.positions import Lot, resolve_lot
 
 router = APIRouter()
 
@@ -66,7 +68,10 @@ async def list_holdings(repo: RepoDep) -> list[HoldingOut]:
 
 @router.post("/holdings", response_model=HoldingOut, status_code=status.HTTP_201_CREATED)
 async def add_holding(body: HoldingIn, repo: RepoDep) -> HoldingOut:
-    h = await repo.add_holding(body.ticker, body.purchase_date, shares=body.shares, amount=body.amount)
+    # Price it first: an unknown ticker or a date before it listed is rejected (422) instead of saved.
+    r = await asyncio.to_thread(resolve_lot, Lot(body.ticker, body.purchase_date, shares=body.shares,
+                                                 amount=body.amount))
+    h = await repo.add_holding(r.ticker, body.purchase_date, shares=body.shares, amount=body.amount)
     return HoldingOut.model_validate(h)
 
 

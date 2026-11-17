@@ -158,3 +158,38 @@ class UsageOut(BaseModel):
     cap_usd: float
     remaining_usd: float
     resets: str = "midnight US/Eastern"
+    
+
+
+# ---- portfolio import ----
+class ImportPreviewIn(_In):
+    csv: str = Field(min_length=1, max_length=200_000)
+
+
+class ImportRowOut(BaseModel):
+    row: int
+    ticker: str
+    status: Literal["ok", "error"]
+    purchase_date: date | None = None
+    shares: float | None = None
+    amount: float | None = None
+    error: str | None = None
+    trade_date: date | None = None
+    price_paid: float | None = None
+    shares_now: float | None = None
+    cost_basis: float | None = None
+    note: str | None = None
+
+
+class ImportPreviewOut(BaseModel):
+    rows: list[ImportRowOut]
+    ok: int
+    errors: int
+
+
+class ImportCommitIn(_In):
+    rows: list[HoldingIn] = Field(min_length=1, max_length=200)
+
+
+class ImportCommitOut(BaseModel):
+    created: int

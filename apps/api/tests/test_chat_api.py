@@ -12,7 +12,6 @@ from agent.pricing import call_cost
 from app.main import app
 from app.routes import agent as agent_routes
 from app.runs import is_busy, start_run
-from db.repo import AdminRepo, UserRepo
 from tests.test_agent import ScriptedModel, say
 
 
@@ -31,16 +30,6 @@ def script():
     app.dependency_overrides[agent_routes.agent_options] = lambda: {"model": holder["model"], "use_mcp": False}
     yield _set
     app.dependency_overrides.pop(agent_routes.agent_options, None)
-
-
-@pytest.fixture
-def signed_in(client, invited_user, session):
-    async def _make():
-        headers, email, _ = await invited_user()
-        assert (await client.get("/me", headers=headers)).status_code == 200
-        user = await AdminRepo(session).find_user(email)
-        return headers, UserRepo(session, user.id)
-    return _make
 
 
 async def test_chat_streams_and_is_saved(client, signed_in, script):

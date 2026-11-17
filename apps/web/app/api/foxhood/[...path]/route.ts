@@ -4,13 +4,23 @@
 import type { NextRequest } from "next/server";
 import { apiFetch } from "@/lib/api";
 
-// Only these API paths are reachable from the browser through this proxy.
-const ALLOWED = /^(chat|threads|threads\/[^/]+|threads\/[^/]+\/approve|usage\/today|briefs|briefs\/today)$/;
+// Only these API paths are reachable from the browser through this proxy ("*" = one path segment).
+const ALLOWED_PATHS = [
+  "me", "me/profile", "me/export",
+  "portfolio", "portfolio/history", "earnings/upcoming",
+  "holdings", "holdings/*", "holdings/import/preview", "holdings/import/commit",
+  "watchlist", "watchlist/*", "memories", "memories/*",
+  "chat", "threads", "threads/*", "threads/*/approve",
+  "briefs", "briefs/today", "usage/today",
+];
+const ALLOWED = new RegExp(`^(${ALLOWED_PATHS.map((p) => p.replaceAll("*", "[^/]+")).join("|")})$`);
 
 async function forward(req: NextRequest, ctx: RouteContext<"/api/foxhood/[...path]">) {
   const { path } = await ctx.params;
   const joined = path.join("/");
-  if (!ALLOWED.test(joined)) return Response.json({ detail: "Not found" }, { status: 404 });
+  if (path.some((seg) => seg === "." || seg === "..") || !ALLOWED.test(joined)) {
+    return Response.json({ detail: "Not found" }, { status: 404 });
+  }
 
   const target = "/" + path.map(encodeURIComponent).join("/") + req.nextUrl.search;
   const hasBody = req.method === "POST" || req.method === "PATCH";

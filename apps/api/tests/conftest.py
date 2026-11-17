@@ -74,3 +74,24 @@ def invited_user(session):
         return bearer(make_token(email, sub, name=name)), email, sub
 
     return _make
+
+
+
+@pytest.fixture(autouse=True)
+def fake_market(monkeypatch, test_database):
+    """Every test gets the fake market-data providers (tests/fakes.py): no network, no API keys."""
+    from tests.fakes import install
+    return install(monkeypatch)
+
+
+@pytest.fixture
+def signed_in(client, invited_user, session):
+    """Invites + signs in a fresh user through the API; returns (auth headers, UserRepo for them)."""
+    from db.repo import AdminRepo, UserRepo
+
+    async def _make():
+        headers, email, _ = await invited_user()
+        assert (await client.get("/me", headers=headers)).status_code == 200
+        user = await AdminRepo(session).find_user(email)
+        return headers, UserRepo(session, user.id)
+    return _make
