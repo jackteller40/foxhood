@@ -64,7 +64,7 @@ async def main() -> int:
         joined = "".join(streamed)
         print(f"--> streamed text identical to saved answer: {joined == r.answer}")
         if joined != r.answer:
-            i = next((k for k, (a, b) in enumerate(zip(joined, r.answer)) if a != b), min(len(joined), len(r.answer)))
+            i = next((k for k, (a, b) in enumerate(zip(joined, r.answer, strict=False)) if a != b), min(len(joined), len(r.answer)))
             print(f"    first difference at char {i}: streamed {joined[i-15:i+15]!r} vs saved {r.answer[i-15:i+15]!r}")
             near = [t for t in streamed if t.strip() in ("%", "to", "weight", "'s")][:8]
             print(f"    chunks around it: {near!r}")
