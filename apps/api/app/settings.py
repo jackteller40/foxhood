@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from decimal import Decimal
 
 import core.config  # noqa: F401  (loads apps/api/.env)
 
@@ -11,6 +12,8 @@ import core.config  # noqa: F401  (loads apps/api/.env)
 class ApiSettings:
     database_url: str
     api_jwt_secret: str
+    daily_cap_user_usd: Decimal    # per person, resets at midnight ET
+    daily_cap_total_usd: Decimal   # everyone combined: the kill switch for the Claude bill
 
 
 def _async_url(url: str) -> str:
@@ -27,6 +30,8 @@ def _load() -> ApiSettings:
     return ApiSettings(
         database_url=_async_url(os.getenv("DATABASE_URL", "postgresql+psycopg://foxhood:foxhood@localhost:5432/foxhood")),
         api_jwt_secret=secret,
+        daily_cap_user_usd=Decimal(os.getenv("DAILY_CAP_USER_USD", "0.15")),
+        daily_cap_total_usd=Decimal(os.getenv("DAILY_CAP_TOTAL_USD", "0.50")),
     )
 
 

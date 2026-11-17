@@ -75,8 +75,8 @@ async def _save_run(user_id: uuid.UUID, tracer: TraceHandler, run_event: dict) -
     try:
         async with user_repo(user_id) as repo:
             await repo.add_trace_events([run_event, *tracer.events])
-            for model_name, (tokens_in, tokens_out) in tracer.usage.items():
-                await repo.add_usage(run_event["run_id"], model_name, tokens_in, tokens_out)  # cost: chunk D
+            for model_name, (tokens_in, tokens_out, cost) in tracer.usage.items():
+                await repo.add_usage(run_event["run_id"], model_name, tokens_in, tokens_out, cost)
     except Exception:
         log.exception("Failed to save trace/usage for run %s", run_event["run_id"])
 

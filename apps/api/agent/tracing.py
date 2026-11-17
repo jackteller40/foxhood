@@ -17,10 +17,12 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from decimal import Decimal
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
+from agent.pricing import call_cost
 from db.models import utcnow
 
 MEMORY_TOOLS = {"recall_memory", "remember"}
@@ -107,6 +109,7 @@ class TraceHandler(BaseCallbackHandler):
         self._parent_of: dict[str, str | None] = {}
         self._recorded: set[str] = {root_run_id}
         self._open: dict[str, dict] = {}
+        self.usage: dict[str, list] = {}           # model -> [input_tokens, output_tokens, cost_usd]
 
     # ---- live events ----
     def emit(self, event: dict) -> None:
@@ -215,9 +218,14 @@ class TraceHandler(BaseCallbackHandler):
         ev = self._end(run_id, out, status=status, error=error)
         if usage:
             key = str(model or (ev or {}).get("name") or "llm")
-            totals = self.usage.setdefault(key, [0, 0])
-            totals[0] += int(usage.get("input_tokens") or 0)
-            totals[1] += int(usage.get("output_tokens") or 0)
+            tokens_in, tokens_out = int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+            details = usage.get("input_token_details") or {}
+            cost = call_cost(key, tokens_in, tokens_out, cache_read=int(details.get("cache_read") or 0),
+                             cache_write=int(details.get("cache_creation") or 0))
+            totals = self.usage.setdefault(key, [0, 0, Decimal(0)])
+            totals[0] += tokens_in
+            totals[1] += tokens_out
+            totals[2] += cost
 
     def on_llm_new_token(self, token, *, run_id, chunk=None, **kwargs):
         if self._emit is None or not self._is_top_level(run_id):

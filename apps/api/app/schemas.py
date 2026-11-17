@@ -102,3 +102,59 @@ class SignInCheckIn(_In):
 class SignInCheckOut(BaseModel):
     allowed: bool
     reason: str
+    
+
+
+# ---- agent ----
+class ChatIn(_In):
+    message: str = Field(min_length=1, max_length=4000)
+    thread_id: str | None = Field(None, max_length=128)
+
+
+class Decision(_In):
+    approved: bool
+    note: str | None = Field(None, max_length=200)
+
+
+class ApproveIn(_In):
+    decisions: dict[str, Decision] = Field(min_length=1)   # tool_call_id -> decision
+    run_id: str | None = Field(None, max_length=64)        # the paused run, for linking traces
+
+
+class ThreadOut(_Out):
+    id: str
+    title: str
+    archived: bool
+    created_at: datetime
+    last_active_at: datetime
+
+
+class ThreadUpdate(_In):
+    title: str | None = Field(None, min_length=1, max_length=100)
+    archived: bool | None = None
+
+
+class ChatMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+    tools: list[str] = []
+
+
+class ThreadDetailOut(BaseModel):
+    thread: ThreadOut
+    messages: list[ChatMessageOut]
+    pending: list[dict]
+
+
+class BriefOut(_Out):
+    brief_date: date
+    session: str
+    content: str
+    created_at: datetime
+
+
+class UsageOut(BaseModel):
+    spent_usd: float
+    cap_usd: float
+    remaining_usd: float
+    resets: str = "midnight US/Eastern"

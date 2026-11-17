@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from app.routes import internal, user_data
+from app.routes import agent, internal, user_data
 from db.crypto import DecryptionError
 from db.repo import NotFound
 from db.session import engine
@@ -18,6 +18,7 @@ log = logging.getLogger("foxhood.api")
 app = FastAPI(title="Foxhood API", version="0.2.0")
 app.include_router(user_data.router)
 app.include_router(internal.router)
+app.include_router(agent.router)
 
 
 @app.exception_handler(NotFound)

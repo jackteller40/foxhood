@@ -9,13 +9,15 @@ from langchain_core.messages import AIMessage
 
 from agent.runner import arun_agent
 from agent.tools import user_repo
+from agent.tracing import EventSink
 from core.market_clock import BriefSlot, current_brief_slot
 
 LABELS = {"premarket": "pre-market brief", "close": "post-close recap"}
 
 
 async def get_or_create_brief(user_id: uuid.UUID, slot: BriefSlot | None = None, force: bool = False, *,
-                              model: BaseChatModel | None = None, use_mcp: bool = True) -> dict:
+                              model: BaseChatModel | None = None, use_mcp: bool = True,
+                              on_event: EventSink | None = None) -> dict:
     slot = slot or current_brief_slot()
     if not force:
         async with user_repo(user_id) as repo:
@@ -25,7 +27,8 @@ async def get_or_create_brief(user_id: uuid.UUID, slot: BriefSlot | None = None,
 
     # Deliberately doesn't name a skill: the agent has to pick the right one from its catalog.
     question = f"Write my {LABELS[slot.session]} for {slot.brief_date:%A, %B %d, %Y}."
-    result = await arun_agent(user_id, question, task=f"brief:{slot.session}", model=model, use_mcp=use_mcp)
+    result = await arun_agent(user_id, question, task=f"brief:{slot.session}", model=model, use_mcp=use_mcp,
+                              on_event=on_event)
     if result.status != "ok":
         raise RuntimeError(f"Brief run {result.run_id} ended with status {result.status}")
     last = next((m for m in reversed(result.messages) if isinstance(m, AIMessage)), None)
