@@ -33,8 +33,13 @@ export async function readEvents(res: Response, onEvent: (e: AgentEvent) => void
 // Turns a failed (non-stream) response into a readable message.
 export async function errorMessage(res: Response): Promise<string> {
   try {
-    const body = (await res.json()) as { detail?: unknown };
-    if (typeof body.detail === "string") return body.detail;
+    const { detail } = (await res.json()) as { detail?: unknown };
+    if (typeof detail === "string") return detail;
+    // FastAPI validation errors: [{ loc, msg }, ...]
+    if (Array.isArray(detail) && detail.length) {
+      return detail.map((d: { msg?: string }) => (d.msg ?? "").replace(/^Value error, /, "")).filter(Boolean).join(" ") || `Request failed (${res.status}).`;
+    }
+    if (detail && typeof detail === "object" && "message" in detail) return String((detail as { message: unknown }).message);
   } catch {
     // not JSON
   }

@@ -17,6 +17,10 @@ export type Summary = {
 export type Position = {
   ticker: string;
   name: string;
+  shares: number;
+  price: number;
+  cost_basis: number;
+  total_return_pct: number;
   market_value: number;
   weight_pct: number;
   day_change_pct: number | null;
@@ -28,6 +32,9 @@ export type PortfolioView = {
   positions: Position[];
   lot_errors: { holding_id: string; ticker: string; error: string }[];
 };
+
+export type Holding = { id: string; ticker: string; purchase_date: string; shares: number | null; amount: number | null; source: string };
+export type WatchItem = { id: string; ticker: string; note: string | null };
 
 export type HistoryPoint = { date: string; portfolio: number; benchmark: number; invested: number };
 export type History = { range: string; benchmark: string; points: HistoryPoint[] };

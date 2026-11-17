@@ -23,13 +23,13 @@ async function forward(req: NextRequest, ctx: RouteContext<"/api/foxhood/[...pat
   }
 
   const target = "/" + path.map(encodeURIComponent).join("/") + req.nextUrl.search;
-  const hasBody = req.method === "POST" || req.method === "PATCH";
+  const body = req.method === "GET" ? "" : await req.text(); // DELETE /me carries a confirmation body
   let upstream: Response;
   try {
     upstream = await apiFetch(target, {
       method: req.method,
-      headers: hasBody ? { "Content-Type": "application/json" } : undefined,
-      body: hasBody ? await req.text() : undefined,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body || undefined,
       signal: req.signal, // stop reading if the browser goes away (the run itself still finishes on the API)
     });
   } catch (e) {
@@ -41,6 +41,8 @@ async function forward(req: NextRequest, ctx: RouteContext<"/api/foxhood/[...pat
   const headers = new Headers({ "Cache-Control": "no-cache, no-transform" });
   const type = upstream.headers.get("content-type");
   if (type) headers.set("Content-Type", type);
+  const disposition = upstream.headers.get("content-disposition"); // file downloads (data export)
+  if (disposition) headers.set("Content-Disposition", disposition);
   if (type?.startsWith("text/event-stream")) headers.set("X-Accel-Buffering", "no");
   return new Response(upstream.body, { status: upstream.status, headers });
 }
