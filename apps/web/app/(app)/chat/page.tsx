@@ -10,12 +10,12 @@ async function loadSidebar(): Promise<{ threads: Thread[]; usage: Usage | null }
   }
 }
 
-export default async function ChatPage() {
-  const { threads, usage } = await loadSidebar();
+export default async function ChatPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const [{ threads, usage }, { q }] = await Promise.all([loadSidebar(), searchParams]);
   return (
     <main className="mx-auto flex h-full min-h-0 w-full max-w-[1200px] flex-col px-5 pt-4 pb-3 md:px-10">
       <h1 className="sr-only">Chat</h1>
-      <ChatApp initialThreads={threads} initialUsage={usage} />
+      <ChatApp initialThreads={threads} initialUsage={usage} initialQuestion={q?.trim().slice(0, 4000) || null} />
     </main>
   );
 }

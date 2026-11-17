@@ -110,12 +110,15 @@ async def test_daily_caps(client, signed_in, script, monkeypatch):
 async def test_brief_endpoint_generates_then_serves_saved(client, signed_in, script):
     headers, _ = await signed_in()
     script(say("Today's recap: markets were mixed. Not financial advice."))
+    peek = (await client.get("/briefs/today", headers=headers)).json()
+    assert peek["brief"] is None and peek["session"] in {"premarket", "close"}
     first = events(await client.post("/briefs/today", headers=headers))
     assert first[-1]["type"] == "brief" and first[-1]["cached"] is False
     assert "markets were mixed" in first[-1]["content"]
     second = events(await client.post("/briefs/today", headers=headers))
     assert len(second) == 1 and second[0]["cached"] is True and second[0]["content"] == first[-1]["content"]
     assert len((await client.get("/briefs", headers=headers)).json()) == 1
+    assert (await client.get("/briefs/today", headers=headers)).json()["brief"]["content"] == first[-1]["content"]
 
 
 async def test_one_run_at_a_time_per_user():

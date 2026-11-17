@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Ban, Check, LoaderCircle } from "lucide-react";
 import { Markdown } from "@/components/markdown";
@@ -60,7 +61,13 @@ function describeRequest(r: ApprovalRequest): string {
   }
 }
 
-export default function ChatApp({ initialThreads, initialUsage }: { initialThreads: Thread[]; initialUsage: Usage | null }) {
+export default function ChatApp({ initialThreads, initialUsage, initialQuestion }: {
+  initialThreads: Thread[];
+  initialUsage: Usage | null;
+  initialQuestion: string | null; // from the Ask bar on Today (/chat?q=...)
+}) {
+  const router = useRouter();
+  const askedInitial = useRef(false);
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -146,6 +153,15 @@ export default function ChatApp({ initialThreads, initialUsage }: { initialThrea
     setInput("");
     void run(`${API}/chat`, { message: text, thread_id: threadId }, text);
   }
+
+  // A question from the Ask bar on Today: ask it once, then drop ?q= so a reload doesn't ask again.
+  useEffect(() => {
+    if (!initialQuestion || askedInitial.current) return;
+    askedInitial.current = true;
+    router.replace("/chat");
+    void run(`${API}/chat`, { message: initialQuestion, thread_id: null }, initialQuestion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once on arrival
+  }, [initialQuestion]);
 
   function decide(approved: boolean) {
     if (!threadId) return;

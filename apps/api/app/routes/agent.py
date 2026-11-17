@@ -2,6 +2,7 @@
 token, tool_start, tool_end, denied, approval_required, done / error (and brief, for briefs)."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -24,7 +25,7 @@ from app.schemas import (
     UsageOut,
 )
 from app.settings import settings
-from core.market_clock import current_brief_slot
+from core.market_clock import ET, current_brief_slot
 from db.repo import AdminRepo, UserRepo
 
 router = APIRouter()
@@ -141,6 +142,16 @@ async def todays_brief(user: CurrentUserDep, repo: RepoDep, session: SessionDep,
         emit({"type": "brief", "cached": False, **BriefOut.model_validate(brief).model_dump(mode="json")})
 
     return start_run(user.id, job)
+
+
+@router.get("/briefs/today")
+async def peek_todays_brief(repo: RepoDep) -> dict:
+    """Which brief is current, and the saved one if it exists. Never generates (that's the POST)."""
+    slot = current_brief_slot()
+    saved = await repo.get_brief(slot.brief_date, slot.session)
+    return {"session": slot.session, "brief_date": slot.brief_date.isoformat(),
+            "trading_day_today": slot.brief_date == datetime.now(ET).date(),
+            "brief": BriefOut.model_validate(saved).model_dump(mode="json") if saved else None}
 
 
 @router.get("/briefs", response_model=list[BriefOut])
