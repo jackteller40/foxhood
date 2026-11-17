@@ -15,6 +15,7 @@ Use after the market closes, when the user asks for their daily recap or how tod
    anything that moved more than 3%). Send them in ONE `delegate_news_analysis` call with
    focus "explain_move".
 5. `get_macro_snapshot`, and `get_upcoming_releases` with days=3 for upcoming catalysts.
+6. `get_earnings_calendar` with days_ahead=7.
 
 ## Write (markdown, 300-400 words, these sections in order)
 ### Today in one line
@@ -31,7 +32,7 @@ Note sector concentration if one sector is above 50%.
 2-3 numbers that matter for THIS portfolio (rates for growth- or bond-heavy books, credit spreads
 for income books), each with its 1-month change.
 ### Next session
-Scheduled releases in the next trading day or two, and what they could mean for these holdings.
+Scheduled releases and earnings (holdings or watchlist) in the next trading day or two, with timing, and what they could mean for these holdings. If a holding reported today, give actual vs estimate EPS.
 
 ## Rules
 - Every number must come from a tool result in this run.

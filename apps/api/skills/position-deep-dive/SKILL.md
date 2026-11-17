@@ -12,7 +12,8 @@ Use when the user asks about one specific ticker ("what do you think of AMD?", "
 2. `get_company_profile` and `get_price_performance` for the ticker.
 3. `get_positions` to see whether the user holds it, and at what weight.
 4. `delegate_news_analysis` with just this ticker, focus "deep_dive".
-5. Only if the business is rate-sensitive (banks, REITs, utilities, long-duration growth):
+5. `get_earnings_calendar` with tickers=[the ticker] and days_ahead=30: mention the next report date.
+6. Only if the business is rate-sensitive (banks, REITs, utilities, long-duration growth):
    `get_macro_snapshot` and use 1-2 numbers.
 
 ## Write (markdown, 250-350 words, these sections in order)

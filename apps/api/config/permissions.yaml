@@ -13,6 +13,7 @@ allow:                   # read-only: run without asking
   - get_watchlist_snapshot
   - get_price_performance
   - get_company_profile
+  - get_earnings_calendar
   - recall_memory
   - load_skill
   - delegate_news_analysis

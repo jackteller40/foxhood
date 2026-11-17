@@ -3,20 +3,9 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-import finnhub
-
-from core.config import settings
 from datasources.cache import cached
+from datasources.clients import finnhub_client as _get_client
 
-_client: finnhub.Client | None = None
-
-def _get_client() -> finnhub.Client:
-    global _client
-    if not settings.finnhub_api_key:
-        raise RuntimeError("FINNHUB_API_KEY missing from .env")
-    if _client is None:
-        _client = finnhub.Client(api_key=settings.finnhub_api_key)
-    return _client
 
 def _normalize(items: list[dict], ticker: str | None, limit: int) -> list[dict]:
     """Newest first, dedupe repeated wire headlines, keep only the fields the agent needs"""

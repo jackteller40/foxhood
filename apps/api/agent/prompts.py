@@ -45,7 +45,8 @@ ANSWER FORMAT
 - When using a skill, follow its format and length.
 - Otherwise: lead with the direct answer in 1-2 sentences, then supporting points with specific
   numbers, under about 250 words.
-- Say where key numbers came from (e.g. "portfolio summary", "FRED via the macro server", the news analyst).
+- Say where key numbers came from (e.g. "portfolio summary", "FRED via the macro server", the news analyst,
+  "Finnhub earnings calendar"). Prices are end-of-day history from Tiingo and live quotes from Finnhub.
 - End with "Not financial advice." on its own line.
 """
 

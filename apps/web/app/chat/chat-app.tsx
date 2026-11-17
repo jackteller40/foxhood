@@ -29,6 +29,7 @@ const TOOL_LABELS: Record<string, string> = {
   remove_from_watchlist: "Removing from your watchlist",
   add_holding: "Recording a purchase",
   submit_trade_order: "Placing a trade",
+  get_earnings_calendar: "Checking earnings dates",
 };
 const label = (name: string) => TOOL_LABELS[name] ?? name;
 
@@ -255,6 +256,9 @@ export default function ChatApp({ initialThreads, initialUsage }: { initialThrea
           />
           <Button type="submit" disabled={busy || !input.trim()}>{busy ? "Working…" : "Send"}</Button>
         </form>
+        <p className="pt-1 text-xs text-muted-foreground">
+          Prices: Tiingo · Quotes &amp; earnings: Finnhub · Economic data: FRED · Not financial advice
+        </p>
       </section>
     </div>
   );

@@ -3,7 +3,7 @@ so the LLM never chooses (or sees) whose data it's reading.
 
 Tools are async and each opens its own DB session: the model often calls several tools at once,
 and one AsyncSession can't be shared between tasks running in parallel. Market-data calls are
-blocking (yfinance), so they run in worker threads."""
+blocking  http calls, so they run in worker threads."""
 from __future__ import annotations
 
 import asyncio
@@ -183,6 +183,25 @@ def make_local_tools(user_id: uuid.UUID) -> list:
             {"kind": m.kind, "content": m.content, "tags": m.tags, "saved": m.created_at.date().isoformat()}
             for _score, m in hits
         ]})
+        
+    @tool
+    async def get_earnings_calendar(tickers: list[str] | None = None, days_ahead: int = 14) -> str:
+        """Earnings dates for the user's holdings and watchlist (or the tickers you pass), from 3 days
+        ago to `days_ahead` days out (max 30): date, before/after market, quarter, EPS estimate, and the
+        actual EPS for ones already reported. Use for "what reports this week?", and in briefs."""
+        if tickers:
+            wanted = [t.strip().upper() for t in tickers if t and t.strip()][:30]
+        else:
+            async with user_repo(user_id) as repo:
+                wanted = sorted({h.ticker for h in await repo.list_holdings()}
+                                | {w.ticker for w in await repo.list_watchlist()})
+        if not wanted:
+            return _dump({"earnings": [], "note": "No holdings or watchlist tickers to check."})
+        days = max(1, min(int(days_ahead), 30))
+        rows = await asyncio.to_thread(market.get_earnings_calendar, wanted, days)
+        return _dump({"checked": wanted, "window_days_ahead": days, "earnings": rows,
+                      "note": None if rows else "None of these report in this window.",
+                      "source": "Finnhub earnings calendar"})
 
     return [get_portfolio_summary, get_positions, get_watchlist_snapshot, get_price_performance,
-            get_company_profile, recall_memory]
+            get_company_profile, recall_memory, get_earnings_calendar]

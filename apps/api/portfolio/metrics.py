@@ -2,7 +2,7 @@
 
 Two return measures, both computed for the portfolio AND the benchmark:
 - price return  (pnl, pnl_pct, total_pnl_pct): price change only
-- total return  (total_return_*): dividends reinvested, from yfinance 'Adj Close'
+- total return  (total_return_*): dividends reinvested, from the 'Adj Close' column (Tiingo).
 Income-heavy portfolios look much worse on price return alone, so the agent reports both.
 value_history() is price-based (it's for the chart)."""
 from __future__ import annotations

@@ -1,6 +1,6 @@
 ---
 name: premarket-brief
-description: Write the user's pre-market brief for the current trading day - recent news on holdings and watchlist, today's scheduled economic catalysts, active risk-rule breaches, and what to watch.
+description: Write the user's pre-market brief for the current trading day - recent news on holdings and watchlist, earnings and economic catalysts, active risk-rule breaches, and what to watch.
 ---
 
 # Pre-market brief
@@ -12,9 +12,9 @@ Use before or during the trading day, when the user asks for their morning or pr
 2. `get_positions` for weights and the latest moves.
 3. `get_watchlist_snapshot`.
 4. `get_upcoming_releases` with days=2.
-5. ONE `delegate_news_analysis` call with the 3-5 largest holdings plus up to 2 watchlist names,
-   focus "recent_newscd ~/foxhood".
+5. ONE `delegate_news_analysis` call with the 3-5 largest holdings plus up to 2 watchlist names, focus "recent_news"
 6. `get_macro_snapshot`.
+7. `get_earnings_calendar` with days_ahead=7 (no tickers: it checks holdings and watchlist).
 
 ## Timing
 Check the current time in your instructions. Before 9:30 am ET, day-change numbers in tool results
@@ -26,6 +26,7 @@ and label moves "so far today".
 Two sentences: the setup for today and the one thing that matters most for this user.
 ### Today's catalysts
 Economic releases today or tomorrow with times when known (FOMC decisions are 2:00 pm ET).
+Earnings from holdings or watchlist reporting today or this week, with before/after market timing and the EPS estimate. Anything reported in the last 3 days: actual vs estimate in one line.
 ### News on your holdings
 Company-specific items only (relevance 1-3). If there's none, say so in one line.
 ### Watchlist
