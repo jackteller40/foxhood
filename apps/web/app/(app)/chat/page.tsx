@@ -1,6 +1,3 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { apiFetch } from "@/lib/api";
 import ChatApp, { type Thread, type Usage } from "./chat-app";
 
@@ -14,15 +11,10 @@ async function loadSidebar(): Promise<{ threads: Thread[]; usage: Usage | null }
 }
 
 export default async function ChatPage() {
-  const session = await auth();
-  if (!session?.user) redirect("/");
   const { threads, usage } = await loadSidebar();
   return (
-    <main className="mx-auto flex h-screen max-w-5xl flex-col p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Foxhood chat</h1>
-        <Link href="/dashboard" className="text-sm text-muted-foreground hover:underline">Dashboard</Link>
-      </div>
+    <main className="mx-auto flex h-full min-h-0 w-full max-w-[1200px] flex-col px-5 pt-4 pb-3 md:px-10">
+      <h1 className="sr-only">Chat</h1>
       <ChatApp initialThreads={threads} initialUsage={usage} />
     </main>
   );

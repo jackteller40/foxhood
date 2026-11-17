@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Ban, Check, LoaderCircle } from "lucide-react";
+import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { type AgentEvent, type ApprovalRequest, errorMessage, readEvents } from "@/lib/stream";
 
@@ -32,6 +34,14 @@ const TOOL_LABELS: Record<string, string> = {
   get_earnings_calendar: "Checking earnings dates",
 };
 const label = (name: string) => TOOL_LABELS[name] ?? name;
+
+function ActivityIcon({ status }: { status: Activity["status"] }) {
+  const cls = "size-3.5 shrink-0";
+  if (status === "running") return <LoaderCircle className={`${cls} motion-safe:animate-spin`} aria-label="In progress" />;
+  if (status === "ok") return <Check className={`${cls} text-up`} aria-label="Done" />;
+  if (status === "denied") return <Ban className={cls} aria-label="Blocked" />;
+  return <AlertTriangle className={cls} aria-label="Failed" />;
+}
 
 function describeRequest(r: ApprovalRequest): string {
   const a = r.args;
@@ -166,99 +176,133 @@ export default function ChatApp({ initialThreads, initialUsage }: { initialThrea
     setError(null);
   }
 
+  const placeholder = pending.requests.length ? "Approve or reject above, or ask something new" : "Ask about your portfolio, a stock, or the market";
+
   return (
-    <div className="flex min-h-0 flex-1 gap-4">
-      <aside className="flex w-56 shrink-0 flex-col gap-2 overflow-y-auto border-r pr-3">
-        <Button variant="outline" onClick={newChat} disabled={busy}>New chat</Button>
+    <div className="flex min-h-0 flex-1 gap-8">
+      <aside aria-label="Conversations" className="hidden w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-rule pr-4 md:flex">
+        <Button variant="outline" onClick={newChat} disabled={busy} className="mb-2 h-10 bg-paper-raised">New chat</Button>
         {threads.map((t) => (
           <button
             key={t.id}
             onClick={() => void openThread(t.id)}
-            className={`truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted ${t.id === threadId ? "bg-muted font-medium" : ""}`}
+            aria-current={t.id === threadId ? "true" : undefined}
+            className="truncate rounded-md px-2.5 py-2 text-left text-sm text-ink-muted hover:bg-muted hover:text-ink aria-[current=true]:bg-muted aria-[current=true]:font-medium aria-[current=true]:text-ink"
             title={t.title}
           >
             {t.title}
           </button>
         ))}
         {usage && (
-          <p className="mt-auto pt-2 text-xs text-muted-foreground">
-            Spent today: ${usage.spent_usd.toFixed(3)} of ${usage.cap_usd.toFixed(2)}
+          <p className="mt-auto pt-3 text-[13px] text-ink-muted">
+            Used today: ${usage.spent_usd.toFixed(3)} of ${usage.cap_usd.toFixed(2)}
           </p>
         )}
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex-1 space-y-4 overflow-y-auto pb-4">
-          {messages.length === 0 && (
-            <p className="pt-16 text-center text-muted-foreground">
-              Ask about your portfolio, a stock, or the market. Try &quot;How is my portfolio doing today?&quot;
-            </p>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
-              <div className={m.role === "user" ? "max-w-[80%] rounded-lg bg-primary px-3 py-2 text-primary-foreground" : "max-w-full"}>
-                {m.activity && m.activity.length > 0 && (
-                  <ul className="mb-2 space-y-0.5 text-xs text-muted-foreground">
-                    {m.activity.map((a) => (
-                      <li key={a.id}>
-                        {a.status === "running" ? "… " : a.status === "ok" ? "✓ " : a.status === "denied" ? "⛔ " : "⚠ "}
-                        {a.label}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {m.text || (m.role === "assistant" && busy && i === messages.length - 1 ? "Thinking…" : "")}
-                </p>
-              </div>
-            </div>
-          ))}
-
-          {pending.requests.length > 0 && (
-            <div className="rounded-lg border p-3">
-              <p className="mb-2 text-sm font-medium">Foxhood wants to:</p>
-              <ul className="mb-3 list-disc space-y-1 pl-5 text-sm">
-                {pending.requests.map((r) => (
-                  <li key={r.id}>{describeRequest(r)}</li>
-                ))}
-              </ul>
-              <div className="flex gap-2">
-                <Button onClick={() => decide(true)} disabled={busy}>Approve</Button>
-                <Button variant="outline" onClick={() => decide(false)} disabled={busy}>Reject</Button>
-              </div>
-            </div>
-          )}
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div ref={bottom} />
+        {/* On phones the conversation list becomes a picker. */}
+        <div className="mb-3 flex gap-2 md:hidden">
+          <label htmlFor="fx-thread" className="sr-only">Past conversations</label>
+          <select
+            id="fx-thread"
+            value={threadId ?? ""}
+            onChange={(e) => (e.target.value ? void openThread(e.target.value) : newChat())}
+            disabled={busy}
+            className="h-10 min-w-0 flex-1 rounded-lg border border-rule-strong bg-paper-raised px-2 text-sm"
+          >
+            <option value="">New conversation</option>
+            {threads.map((t) => (
+              <option key={t.id} value={t.id}>{t.title}</option>
+            ))}
+          </select>
+          <Button variant="outline" onClick={newChat} disabled={busy} className="h-10 bg-paper-raised">New chat</Button>
         </div>
 
-        <form
-          className="flex gap-2 border-t pt-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
+        <div className="flex-1 overflow-y-auto pb-4">
+          <div className="mx-auto max-w-3xl space-y-6">
+            {messages.length === 0 && (
+              <div className="pt-12 md:pt-20">
+                <p className="text-2xl font-semibold tracking-tight">What do you want to know?</p>
+                <p className="mt-2 text-ink-muted">Try &quot;How is my portfolio doing today?&quot; or &quot;When does NVDA report?&quot;</p>
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
+                <div className={m.role === "user" ? "max-w-[85%] rounded-xl bg-muted px-4 py-2.5" : "max-w-full"}>
+                  {m.activity && m.activity.length > 0 && (
+                    <ul className="mb-3 space-y-1 text-[13px] text-ink-muted">
+                      {m.activity.map((a) => (
+                        <li key={a.id} className="flex items-center gap-2">
+                          <ActivityIcon status={a.status} />
+                          {a.label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {m.role === "user" ? (
+                    <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                  ) : m.text ? (
+                    <Markdown text={m.text} />
+                  ) : busy && i === messages.length - 1 ? (
+                    <p className="text-ink-muted">Thinking…</p>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+
+            {pending.requests.length > 0 && (
+              <div className="rounded-xl border border-rule-strong bg-paper-raised p-4">
+                <p className="mb-2 font-medium">Foxhood wants to:</p>
+                <ul className="mb-4 list-disc space-y-1 pl-5">
+                  {pending.requests.map((r) => (
+                    <li key={r.id}>{describeRequest(r)}</li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <Button onClick={() => decide(true)} disabled={busy} className="h-10 px-4">Approve</Button>
+                  <Button variant="outline" onClick={() => decide(false)} disabled={busy} className="h-10 px-4">Reject</Button>
+                </div>
+              </div>
+            )}
+
+            {error && <p role="alert" className="text-fox">{error}</p>}
+            <div ref={bottom} />
+          </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-3xl">
+          <form
+            className="flex items-end gap-2 rounded-xl border border-rule-strong bg-paper-raised p-2 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-fox shadow-[0_8px_24px_rgba(34,30,31,0.10)]"
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
             }}
-            rows={2}
-            maxLength={4000}
-            placeholder={pending.requests.length ? "Approve or reject above, or ask something new…" : "Ask Foxhood…"}
-            className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          />
-          <Button type="submit" disabled={busy || !input.trim()}>{busy ? "Working…" : "Send"}</Button>
-        </form>
-        <p className="pt-1 text-xs text-muted-foreground">
-          Prices: Tiingo · Quotes &amp; earnings: Finnhub · Economic data: FRED · Not financial advice
-        </p>
+          >
+            <label htmlFor="fx-chat-input" className="sr-only">Message</label>
+            <textarea
+              id="fx-chat-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              rows={2}
+              maxLength={4000}
+              placeholder={placeholder}
+              className="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-base outline-none focus-visible:outline-none"
+            />
+            <Button type="submit" disabled={busy || !input.trim()} className="h-11 px-5 text-[15px] font-semibold">
+              {busy ? "Working…" : "Ask"}
+            </Button>
+          </form>
+          <p className="pt-2 text-[13px] text-ink-muted">
+            Prices from Tiingo, quotes and earnings from Finnhub, economic data from FRED. Not financial advice.
+          </p>
+        </div>
       </section>
     </div>
   );
