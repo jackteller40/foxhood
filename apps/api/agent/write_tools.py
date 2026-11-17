@@ -60,7 +60,8 @@ def make_write_tools(user_id: uuid.UUID) -> list:
 
     @tool
     def submit_trade_order(ticker: str, side: str, quantity: float) -> str:
-        """Submit a buy or sell order for a ticker to the brokerage."""
+        """Trading is NOT available in Foxhood: the permission policy always refuses this tool.
+        Never offer to place or submit an order; tell the user to use their own broker."""
         raise RuntimeError("Trading is not supported.")  # unreachable: the policy denies it first
 
     return [add_to_watchlist, remove_from_watchlist, add_holding, remember, submit_trade_order]
