@@ -50,3 +50,15 @@ async def open_checkpointer() -> AsyncIterator[AsyncPostgresSaver]:
             await saver.setup()
             _setup_done = True
         yield saver
+        
+        
+async def delete_thread_checkpoints(thread_id: str) -> None:
+    async with open_checkpointer() as saver:
+        await saver.adelete_thread(thread_id)
+
+
+async def purge_user_checkpoints(user_id) -> None:
+    """Erase every checkpoint for a user (account deletion). Thread ids all start with '<user_id>:'."""
+    async with open_checkpointer() as saver, saver.conn.cursor() as cur:
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            await cur.execute(f"DELETE FROM {table} WHERE thread_id LIKE %s", (f"{user_id}:%",))

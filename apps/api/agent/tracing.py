@@ -5,13 +5,16 @@ LLM/tool events and skip LangGraph's internal node chains, re-pointing each even
 its nearest *recorded* ancestor (the root run, a subagent, etc.) so the trace tree stays readable.
 
 Events are buffered in memory and saved (encrypted) once, when the run ends: one DB write per run
-instead of one per event. Token usage is totalled per model at the same time."""
+instead of one per event. Token usage is totalled per model at the same time.
+
+If the runner passes an `emit` callback, the handler also sends small live events for the main
+agent only (subagent internals stay hidden): answer tokens, tools starting/finishing, denials."""
 from __future__ import annotations
 
 import json
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -24,6 +27,8 @@ MEMORY_TOOLS = {"recall_memory", "remember"}
 SKILL_TOOLS = {"load_skill"}
 SUBAGENT_TOOLS = {"delegate_news_analysis"}
 PREVIEW_CHARS = 2000
+
+EventSink = Callable[[dict], None]   # receives live events; must not block (e.g. queue.put_nowait)
 
 # The handler for the run in progress, so graph nodes (the permission gate) can add events
 # without threading the handler through every function. asyncio tasks inherit it automatically.
@@ -84,20 +89,38 @@ def record_event(event_type: str, name: str, *, input: Any = None, output: Any =
     handler = _active.get()
     if handler is not None:
         handler.add_event(event_type, name, input=input, output=output, status=status, error=error)
+        if event_type == "permission" and status == "denied":
+            handler.emit({"type": "denied", "name": name, "reason": (output or {}).get("reason")})
 
 
 class TraceHandler(BaseCallbackHandler):
     run_inline = True     # handle events in order, on the calling thread
     raise_error = False   # tracing must never break a run
 
-    def __init__(self, root_run_id: str, mcp_tool_names: set[str] | None = None):
+    def __init__(self, root_run_id: str, mcp_tool_names: set[str] | None = None, emit: EventSink | None = None):
         self.root = root_run_id
         self.mcp_tools = mcp_tool_names or set()
+        self._emit = emit
+        self._last_chunk = None
         self.events: list[dict] = []               # finished events, ready for UserRepo.add_trace_events
         self.usage: dict[str, list[int]] = {}      # model -> [input_tokens, output_tokens]
         self._parent_of: dict[str, str | None] = {}
         self._recorded: set[str] = {root_run_id}
         self._open: dict[str, dict] = {}
+
+    # ---- live events ----
+    def emit(self, event: dict) -> None:
+        """Send a live event, if anyone is listening. A broken listener never breaks the run."""
+        if self._emit is None:
+            return
+        try:
+            self._emit(event)
+        except Exception:
+            self._emit = None   # stop sending to a listener that failed (e.g. browser went away)
+
+    def _is_top_level(self, run_id) -> bool:
+        ev = self._open.get(str(run_id))
+        return ev is not None and ev["parent"] == self.root
 
     # ---- linking ----
     def _logical_parent(self, parent_run_id) -> str:
@@ -196,18 +219,41 @@ class TraceHandler(BaseCallbackHandler):
             totals[0] += int(usage.get("input_tokens") or 0)
             totals[1] += int(usage.get("output_tokens") or 0)
 
+    def on_llm_new_token(self, token, *, run_id, chunk=None, **kwargs):
+        if self._emit is None or not self._is_top_level(run_id):
+            return
+        if chunk is not None:
+            # langchain-anthropic reports each chunk twice (once itself, once via the base class).
+            if chunk is self._last_chunk:
+                return
+            self._last_chunk = chunk
+            msg = getattr(chunk, "message", None)
+            text = content_to_text(msg.content) if msg is not None else getattr(chunk, "text", "")
+        else:
+            text = content_to_text(token)
+        if text:
+            self.emit({"type": "token", "text": text})
+
     def on_llm_error(self, error, *, run_id, **kwargs):
         self._end(run_id, status="error", error=repr(error))
 
     # ---- tools (local + MCP) ----
     def on_tool_start(self, serialized, input_str, *, run_id, parent_run_id=None, inputs=None, **kwargs):
         name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
-        self._start(run_id, parent_run_id, self._tool_type(name), name,
-                    inputs if inputs is not None else input_str)
+        kind = self._tool_type(name)
+        self._start(run_id, parent_run_id, kind, name, inputs if inputs is not None else input_str)
+        if self._is_top_level(run_id):
+            self.emit({"type": "tool_start", "id": str(run_id), "name": name, "kind": kind})
 
     def on_tool_end(self, output, *, run_id, **kwargs):
         text = content_to_text(output)
-        self._end(run_id, _preview(text), status="error" if _looks_like_error(text) else "ok")
+        self._tool_done(run_id, _preview(text), "error" if _looks_like_error(text) else "ok")
 
     def on_tool_error(self, error, *, run_id, **kwargs):
-        self._end(run_id, status="error", error=repr(error))
+        self._tool_done(run_id, None, "error", repr(error))
+
+    def _tool_done(self, run_id, output: Any, status: str, error: str | None = None) -> None:
+        top = self._is_top_level(run_id)
+        ev = self._end(run_id, output, status=status, error=error)
+        if top and ev:
+            self.emit({"type": "tool_end", "id": str(run_id), "name": ev["name"], "status": status})

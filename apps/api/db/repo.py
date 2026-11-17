@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.crypto import field_aad, get_cipher
-from db.models import Brief, Holding, Invite, Memory, TraceEvent, Usage, User, WatchlistItem, utcnow
+from db.models import Brief, ChatThread, Holding, Invite, Memory, TraceEvent, Usage, User, WatchlistItem, utcnow
 
 RISK_LEVELS = {"low", "medium", "high"}
 MEMORY_KINDS = {"preference", "fact", "brief_takeaway"}
@@ -108,6 +108,25 @@ class BriefRecord:
     content: str
     run_id: str | None
     created_at: datetime
+    
+@dataclass(frozen=True)
+class ThreadRecord:
+    id: str
+    task: str
+    title: str
+    archived: bool
+    created_at: datetime
+    last_active_at: datetime
+
+
+def thread_title(text: str | None, limit: int = 60) -> str:
+    """A readable title from the first question: one line, cut at a word boundary."""
+    t = " ".join((text or "").split())
+    if not t:
+        return "New chat"
+    if len(t) <= limit:
+        return t
+    return (t[:limit].rsplit(" ", 1)[0] or t[:limit]) + "…"
 
 
 # ---------- memory keyword search (same scoring as the POC) ----------
@@ -332,6 +351,56 @@ class UserRepo:
         await self.s.commit()
         return self._brief(row)
 
+        # ---- chat threads (ownership + titles; the messages themselves are in the checkpoints) ----
+    def _thread(self, row: ChatThread) -> ThreadRecord:
+        return ThreadRecord(row.id, row.task, self._dec("chat_threads", "title", row.id, row.title_enc),
+                            row.archived, row.created_at, row.last_active_at)
+
+    async def touch_thread(self, thread_id: str, task: str, title: str | None = None) -> ThreadRecord:
+        """Called at the start of every agent run: creates the thread on its first turn, else bumps it.
+        Someone else's thread id raises NotFound, exactly like a thread that doesn't exist."""
+        row = await self.s.get(ChatThread, thread_id)
+        if row is not None and row.user_id != self.user_id:
+            raise NotFound("chat_threads")
+        if row is None:
+            row = ChatThread(id=thread_id, user_id=self.user_id, task=task[:32],
+                             title_enc=self._enc("chat_threads", "title", thread_id, thread_title(title)))
+            self.s.add(row)
+        else:
+            row.last_active_at = utcnow()
+        await self.s.commit()
+        return self._thread(row)
+
+    async def get_thread(self, thread_id: str) -> ThreadRecord:
+        return self._thread(await self._get_owned(ChatThread, thread_id))
+
+    async def list_threads(self, task: str | None = "chat", include_archived: bool = False,
+                           limit: int = 50) -> list[ThreadRecord]:
+        q = select(ChatThread).where(ChatThread.user_id == self.user_id)
+        if task is not None:
+            q = q.where(ChatThread.task == task)
+        if not include_archived:
+            q = q.where(ChatThread.archived.is_(False))
+        q = q.order_by(ChatThread.last_active_at.desc()).limit(limit)
+        return [self._thread(r) for r in (await self.s.execute(q)).scalars().all()]
+
+    async def rename_thread(self, thread_id: str, title: str) -> ThreadRecord:
+        row = await self._get_owned(ChatThread, thread_id)
+        row.title_enc = self._enc("chat_threads", "title", thread_id, thread_title(title, limit=100))
+        await self.s.commit()
+        return self._thread(row)
+
+    async def archive_thread(self, thread_id: str, archived: bool = True) -> ThreadRecord:
+        row = await self._get_owned(ChatThread, thread_id)
+        row.archived = archived
+        await self.s.commit()
+        return self._thread(row)
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """Removes the thread row only. Use agent.runner.delete_thread to also erase its messages."""
+        await self.s.delete(await self._get_owned(ChatThread, thread_id))
+        await self.s.commit()
+        
     # ---- traces (inputs, outputs and errors encrypted; bound to each event's unique run_id) ----
     def _trace_enc(self, column: str, run_id: str, value: Any) -> str | None:
         return None if value is None else self._enc("trace_events", column, run_id, value)
@@ -415,6 +484,8 @@ class UserRepo:
             "watchlist": [asdict(w) for w in await self.list_watchlist()],
             "memories": [asdict(m) for m in await self.list_memories(limit=10_000)],
             "briefs": [asdict(b) for b in await self.list_briefs(limit=10_000)],
+            "chat_threads": [asdict(t) for t in await self.list_threads(task=None, include_archived=True,
+                                                                         limit=10_000)],
         })
 
     async def delete_account(self) -> None:

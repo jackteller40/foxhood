@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Response, status
 from fastapi.responses import JSONResponse
 
+from agent.checkpoint import purge_user_checkpoints
 from app.deps import CurrentUserDep, RepoDep
 from app.schemas import (
     DeleteAccountIn,
@@ -52,7 +53,9 @@ async def export_my_data(repo: RepoDep) -> JSONResponse:
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_my_account(body: DeleteAccountIn, repo: RepoDep) -> None:
-    await repo.delete_account()
+    user_id = repo.user_id
+    await repo.delete_account()               # cascades to every table we own
+    await purge_user_checkpoints(user_id)     # LangGraph's tables have no foreign key to users
 
 
 # ---- holdings ----
