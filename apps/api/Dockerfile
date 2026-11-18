@@ -15,7 +15,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY . .
-RUN uv sync --locked --no-dev
+RUN uv sync --locked --no-dev \
+ # Files keep their laptop permissions when copied; make sure the app user below can read everything.
+ && chmod -R a+rX /app
 
 # Run as an unprivileged user.
 RUN useradd --uid 10001 --no-create-home foxhood
