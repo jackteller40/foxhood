@@ -15,3 +15,6 @@ node_modules/
 *.sqlite*
 # broker exports used for testing the importer (personal data)
 fidelity-sample.csv
+
+# files Claude sends for previewing (not part of the project)
+Claude outputs/
