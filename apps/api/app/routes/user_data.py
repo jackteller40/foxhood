@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Response, status
@@ -12,6 +13,7 @@ from fastapi.responses import JSONResponse
 from agent.checkpoint import purge_user_checkpoints
 from app.deps import CurrentUserDep, RepoDep
 from app.schemas import (
+    AlertOut,
     DeleteAccountIn,
     HoldingIn,
     HoldingOut,
@@ -20,9 +22,13 @@ from app.schemas import (
     MeOut,
     ProfileOut,
     ProfileUpdate,
+    SettingsOut,
+    SettingsUpdate,
     WatchIn,
     WatchOut,
 )
+from datasources.market import ET
+from jobs.alerts import alert_message
 from portfolio.positions import Lot, resolve_lot
 
 router = APIRouter()
@@ -45,6 +51,18 @@ async def get_profile(repo: RepoDep) -> ProfileOut:
 @router.patch("/me/profile", response_model=ProfileOut)
 async def update_profile(body: ProfileUpdate, repo: RepoDep) -> ProfileOut:
     return ProfileOut(**await repo.update_profile(**body.model_dump(exclude_unset=True)))
+
+
+@router.get("/me/settings", response_model=SettingsOut)
+async def get_settings(repo: RepoDep) -> SettingsOut:
+    return SettingsOut(**await repo.get_settings())
+
+
+@router.patch("/me/settings", response_model=SettingsOut)
+async def update_settings(body: SettingsUpdate, repo: RepoDep) -> SettingsOut:
+    fields = body.model_dump(exclude_unset=True)
+    fields = {k: v for k, v in fields.items() if v is not None or k == "max_position_pct"}  # null clears the limit
+    return SettingsOut(**await repo.update_settings(**fields))
 
 
 @router.get("/me/export")
@@ -113,3 +131,16 @@ async def add_memory(body: MemoryIn, repo: RepoDep) -> MemoryOut:
 @router.delete("/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_memory(memory_id: uuid.UUID, repo: RepoDep) -> None:
     await repo.delete_memory(memory_id)
+
+# ---- alerts ----
+@router.get("/alerts", response_model=list[AlertOut])
+async def todays_alerts(repo: RepoDep) -> list[AlertOut]:
+    now = datetime.now(ET)
+    return [AlertOut(id=a.id, kind=a.kind, ticker=a.ticker, created_at=a.created_at,
+                     message=alert_message(a.kind, a.ticker, a.data, now))
+            for a in await repo.list_alerts(now.date())]
+
+
+@router.post("/alerts/{alert_id}/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+async def dismiss_alert(alert_id: uuid.UUID, repo: RepoDep) -> None:
+    await repo.dismiss_alert(alert_id)

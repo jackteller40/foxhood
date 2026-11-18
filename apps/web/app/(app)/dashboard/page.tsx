@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { Alerts } from "@/components/today/alerts";
 import { AskBar } from "@/components/today/ask-bar";
 import { BriefSection } from "@/components/today/brief-section";
 import { ComingUp } from "@/components/today/coming-up";
 import { Treemap, TreemapLegend } from "@/components/today/treemap";
 import { ValueChart } from "@/components/today/value-chart";
 import { apiFetch } from "@/lib/api";
-import { moveColor, money, pct, type BriefPeek, type Earning, type History, type PortfolioView } from "@/lib/today";
+import { moveColor, money, pct, type Alert, type BriefPeek, type Earning, type History, type PortfolioView } from "@/lib/today";
 import { verdict } from "@/lib/verdict";
 
 type Loaded<T> = { data: T | null; status: number | null }; // status null: the API couldn't be reached
@@ -29,11 +30,12 @@ function Notice({ children }: { children: React.ReactNode }) {
 }
 
 export default async function Today() {
-  const [portfolio, history, earnings, brief] = await Promise.all([
+  const [portfolio, history, earnings, brief, alerts] = await Promise.all([
     get<PortfolioView>("/portfolio"),
     get<History>("/portfolio/history?range=1y"),
     get<{ earnings: Earning[] }>("/earnings/upcoming"),
     get<BriefPeek>("/briefs/today"),
+    get<Alert[]>("/alerts"),
   ]);
 
   if (portfolio.status === null) return <Notice>Can&apos;t reach the Foxhood API. If you&apos;re running it locally, is uvicorn running on port 8000?</Notice>;
@@ -63,6 +65,7 @@ export default async function Today() {
 
   return (
     <main className="mx-auto w-full max-w-[1200px] px-5 md:px-10">
+      <Alerts initial={alerts.data ?? []} />
       <section aria-labelledby="fx-verdict" className="mt-8 flex flex-wrap items-end gap-x-16 gap-y-8 md:mt-12">
         <div className="min-w-0 flex-[999_1_560px]">
           <p className="mb-3 text-[15px] text-ink-muted">{today}</p>

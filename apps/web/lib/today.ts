@@ -36,6 +36,9 @@ export type PortfolioView = {
 export type Holding = { id: string; ticker: string; purchase_date: string; shares: number | null; amount: number | null; source: string };
 export type WatchItem = { id: string; ticker: string; note: string | null };
 
+export type Alert = { id: string; kind: "big_move" | "earnings_tomorrow" | "position_limit"; ticker: string; message: string };
+export type Settings = { scheduled_briefs: boolean; email_briefs: boolean; email_alerts: boolean; max_position_pct: number | null };
+
 export type HistoryPoint = { date: string; portfolio: number; benchmark: number; invested: number };
 export type History = { range: string; benchmark: string; points: HistoryPoint[] };
 

@@ -14,6 +14,7 @@ class ApiSettings:
     api_jwt_secret: str
     daily_cap_user_usd: Decimal    # per person, resets at midnight ET
     daily_cap_total_usd: Decimal   # everyone combined: the kill switch for the Claude bill
+    jobs_secret: str               # Cloud Scheduler sends it to /jobs/*; empty disables those endpoints
 
 
 def _async_url(url: str) -> str:
@@ -32,6 +33,7 @@ def _load() -> ApiSettings:
         api_jwt_secret=secret,
         daily_cap_user_usd=Decimal(os.getenv("DAILY_CAP_USER_USD", "0.15")),
         daily_cap_total_usd=Decimal(os.getenv("DAILY_CAP_TOTAL_USD", "0.50")),
+        jobs_secret=os.getenv("JOBS_SECRET", ""),
     )
 
 

@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.crypto import field_aad, get_cipher
-from db.models import Brief, ChatThread, Holding, Invite, Memory, TraceEvent, Usage, User, WatchlistItem, utcnow
+from db.models import Alert, Brief, ChatThread, Holding, Invite, Memory, TraceEvent, Usage, User, WatchlistItem, utcnow
 
 RISK_LEVELS = {"low", "medium", "high"}
 MEMORY_KINDS = {"preference", "fact", "brief_takeaway"}
@@ -28,6 +28,10 @@ DEFAULT_PROFILE: dict[str, Any] = {"name": None, "persona": None, "risk_toleranc
                                    "horizon": None, "interests": []}
 
 BRIEF_SESSIONS = {"premarket", "close"}
+ALERT_KINDS = {"big_move", "earnings_tomorrow", "position_limit"}
+# Per-user switches in users.settings (plaintext JSONB: preferences, not personal data).
+DEFAULT_SETTINGS: dict[str, Any] = {"scheduled_briefs": True, "email_briefs": True, "email_alerts": True,
+                                    "max_position_pct": None}
 EVENT_TYPES = {"run", "llm", "tool", "mcp", "subagent", "skill", "memory", "permission", "error"}
 ET = ZoneInfo("America/New_York")
 
@@ -108,7 +112,18 @@ class BriefRecord:
     content: str
     run_id: str | None
     created_at: datetime
-    
+
+
+@dataclass(frozen=True)
+class AlertRecord:
+    id: uuid.UUID
+    alert_date: date
+    kind: str
+    ticker: str
+    data: dict
+    created_at: datetime
+
+
 @dataclass(frozen=True)
 class ThreadRecord:
     id: str
@@ -196,6 +211,27 @@ class UserRepo:
         user.profile_enc = self._enc("users", "profile", self.user_id, current)
         await self.s.commit()
         return await self.get_profile()
+
+    # ---- settings (briefs, email, alert limits) ----
+    async def get_settings(self) -> dict:
+        user = await self.s.get(User, self.user_id)
+        if user is None:
+            raise NotFound("users")
+        return {**DEFAULT_SETTINGS, **{k: v for k, v in (user.settings or {}).items() if k in DEFAULT_SETTINGS}}
+
+    async def update_settings(self, **fields: Any) -> dict:
+        unknown = set(fields) - set(DEFAULT_SETTINGS)
+        if unknown:
+            raise ValueError(f"Unknown settings: {sorted(unknown)}")
+        limit = fields.get("max_position_pct")
+        if limit is not None and not 1 <= float(limit) <= 100:
+            raise ValueError("max_position_pct must be between 1 and 100")
+        user = await self.s.get(User, self.user_id)
+        if user is None:
+            raise NotFound("users")
+        user.settings = {**(user.settings or {}), **fields}   # new dict, so SQLAlchemy sees the change
+        await self.s.commit()
+        return await self.get_settings()
 
     # ---- holdings ----
     def _holding(self, row: Holding) -> HoldingRecord:
@@ -351,7 +387,41 @@ class UserRepo:
         await self.s.commit()
         return self._brief(row)
 
-        # ---- chat threads (ownership + titles; the messages themselves are in the checkpoints) ----
+    # ---- alerts ----
+    def _alert(self, row: Alert) -> AlertRecord:
+        p = self._dec("alerts", "payload", row.id, row.payload_enc)
+        return AlertRecord(row.id, row.alert_date, row.kind, p.pop("ticker"), p, row.created_at)
+
+    async def list_alerts(self, alert_date: date, include_dismissed: bool = False) -> list[AlertRecord]:
+        q = select(Alert).where(Alert.user_id == self.user_id, Alert.alert_date == alert_date)
+        if not include_dismissed:
+            q = q.where(Alert.dismissed_at.is_(None))
+        return [self._alert(r) for r in (await self.s.execute(q.order_by(Alert.created_at))).scalars().all()]
+
+    async def add_alerts(self, alert_date: date, alerts: list[tuple[str, str, dict]]) -> list[AlertRecord]:
+        """(kind, ticker, data) tuples; skips any kind+ticker already raised that day (dismissed or not)."""
+        seen = {(a.kind, a.ticker) for a in await self.list_alerts(alert_date, include_dismissed=True)}
+        added = []
+        for kind, ticker, data in alerts:
+            if kind not in ALERT_KINDS:
+                raise ValueError(f"kind must be one of {sorted(ALERT_KINDS)}")
+            if (kind, ticker) in seen:
+                continue
+            seen.add((kind, ticker))
+            aid = uuid.uuid4()
+            row = Alert(id=aid, user_id=self.user_id, alert_date=alert_date, kind=kind,
+                        payload_enc=self._enc("alerts", "payload", aid, {"ticker": ticker, **data}))
+            self.s.add(row)
+            added.append(row)
+        await self.s.commit()
+        return [self._alert(r) for r in added]
+
+    async def dismiss_alert(self, alert_id: uuid.UUID) -> None:
+        row = await self._get_owned(Alert, alert_id)
+        row.dismissed_at = row.dismissed_at or utcnow()
+        await self.s.commit()
+
+    # ---- chat threads (ownership + titles; the messages themselves are in the checkpoints) ----
     def _thread(self, row: ChatThread) -> ThreadRecord:
         return ThreadRecord(row.id, row.task, self._dec("chat_threads", "title", row.id, row.title_enc),
                             row.archived, row.created_at, row.last_active_at)
@@ -400,7 +470,7 @@ class UserRepo:
         """Removes the thread row only. Use agent.runner.delete_thread to also erase its messages."""
         await self.s.delete(await self._get_owned(ChatThread, thread_id))
         await self.s.commit()
-        
+
     # ---- traces (inputs, outputs and errors encrypted; bound to each event's unique run_id) ----
     def _trace_enc(self, column: str, run_id: str, value: Any) -> str | None:
         return None if value is None else self._enc("trace_events", column, run_id, value)
@@ -486,6 +556,9 @@ class UserRepo:
             "briefs": [asdict(b) for b in await self.list_briefs(limit=10_000)],
             "chat_threads": [asdict(t) for t in await self.list_threads(task=None, include_archived=True,
                                                                          limit=10_000)],
+            "settings": await self.get_settings(),
+            "alerts": [asdict(self._alert(r)) for r in (await self.s.execute(
+                select(Alert).where(Alert.user_id == self.user_id).order_by(Alert.created_at))).scalars().all()],
         })
 
     async def delete_account(self) -> None:
@@ -550,6 +623,12 @@ class AdminRepo:
             out.append({"email": u.email, "created_at": u.created_at, "last_login_at": u.last_login_at, **counts})
         return out
     
+    async def active_user_ids(self) -> list[uuid.UUID]:
+        """Users whose invite is still active (revoked friends get no scheduled work)."""
+        q = (select(User.id).join(Invite, Invite.email == User.email)
+             .where(Invite.revoked_at.is_(None)).order_by(User.created_at))
+        return list((await self.s.execute(q)).scalars().all())
+
     async def find_user(self, email: str) -> User | None:
         q = select(User).where(User.email == normalize_email(email))
         return (await self.s.execute(q)).scalar_one_or_none()

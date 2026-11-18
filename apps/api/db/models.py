@@ -100,6 +100,34 @@ class Brief(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
+class Alert(Base):
+    """Rule-based alerts (big move, earnings tomorrow, over a position limit). At most one per
+    user, kind and ticker per day, enforced in UserRepo.add_alerts (the ticker is inside the ciphertext)."""
+    __tablename__ = "alerts"
+    __table_args__ = (Index("ix_alerts_user_day", "user_id", "alert_date"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"))
+    alert_date: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(32))        # big_move | earnings_tomorrow | position_limit
+    payload_enc: Mapped[str] = mapped_column(Text)       # {ticker, ...numbers for the message}
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    dismissed_at: Mapped[datetime | None] = mapped_column(TS)
+    emailed_at: Mapped[datetime | None] = mapped_column(TS)
+
+
+class ChatThread(Base):
+    """One conversation. The id is the LangGraph thread_id; the messages live in the (encrypted) checkpoints."""
+    __tablename__ = "chat_threads"
+    __table_args__ = (Index("ix_threads_user_active", "user_id", "last_active_at"),)
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"))
+    task: Mapped[str] = mapped_column(String(32), default="chat")   # chat | brief:premarket | brief:close
+    title_enc: Mapped[str] = mapped_column(Text)                      # titles come from the user's question
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    last_active_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
 class TraceEvent(Base):
     __tablename__ = "trace_events"
     __table_args__ = (Index("ix_trace_user_started", "user_id", "started_at"),)
@@ -138,15 +166,3 @@ class MarketCache(Base):
     value: Mapped[str] = mapped_column(Text)                           # JSON (TEXT, so NaN is allowed)
     expires_at: Mapped[datetime] = mapped_column(TS, index=True)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
-    
-class ChatThread(Base):
-    """One conversation. The id is the LangGraph thread_id; the messages live in the (encrypted) checkpoints."""
-    __tablename__ = "chat_threads"
-    __table_args__ = (Index("ix_threads_user_active", "user_id", "last_active_at"),)
-    id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"))
-    task: Mapped[str] = mapped_column(String(32), default="chat")   # chat | brief:premarket | brief:close
-    title_enc: Mapped[str] = mapped_column(Text)                      # titles come from the user's question
-    archived: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
-    last_active_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

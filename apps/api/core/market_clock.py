@@ -35,6 +35,11 @@ def is_trading_day(d: date) -> bool:
     return bool(_cal().is_session(pd.Timestamp(d)))
 
 
+def next_trading_day(d: date) -> date:
+    """The first trading day after d."""
+    return _cal().date_to_session(pd.Timestamp(d) + pd.Timedelta(days=1), direction="next").date()
+
+
 def current_brief_slot(now: datetime | None = None) -> BriefSlot:
     now = (now or datetime.now(ET)).astimezone(ET)
     cal = _cal()

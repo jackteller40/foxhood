@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 
 // Only these API paths are reachable from the browser through this proxy ("*" = one path segment).
 const ALLOWED_PATHS = [
-  "me", "me/profile", "me/export",
+  "me", "me/profile", "me/settings", "me/export", "alerts", "alerts/*/dismiss",
   "portfolio", "portfolio/history", "earnings/upcoming",
   "holdings", "holdings/*", "holdings/import/preview", "holdings/import/commit",
   "watchlist", "watchlist/*", "memories", "memories/*",

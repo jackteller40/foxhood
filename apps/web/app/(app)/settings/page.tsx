@@ -1,7 +1,9 @@
+import { Automation } from "@/components/settings/automation";
 import { DeleteAccount } from "@/components/settings/delete-account";
 import { type Note, Notes } from "@/components/settings/notes";
 import { type Profile, ProfileForm } from "@/components/settings/profile-form";
 import { apiFetch } from "@/lib/api";
+import type { Settings } from "@/lib/today";
 import { signOutAction } from "../actions";
 
 async function get<T>(path: string): Promise<T | null> {
@@ -23,10 +25,11 @@ function Section({ id, title, children }: { id: string; title: string; children:
 }
 
 export default async function SettingsPage() {
-  const [profile, notes, usage] = await Promise.all([
+  const [profile, notes, usage, prefs] = await Promise.all([
     get<Profile>("/me/profile"),
     get<Note[]>("/memories"),
     get<{ spent_usd: number; cap_usd: number }>("/usage/today"),
+    get<Settings>("/me/settings"),
   ]);
 
   return (
@@ -39,6 +42,11 @@ export default async function SettingsPage() {
           <Section id="s-profile" title="Profile">
             <ProfileForm profile={profile} />
           </Section>
+          {prefs && (
+            <Section id="s-auto" title="Briefs and alerts">
+              <Automation initial={prefs} />
+            </Section>
+          )}
           <Section id="s-notes" title="What Foxhood remembers">
             <Notes notes={notes ?? []} />
           </Section>

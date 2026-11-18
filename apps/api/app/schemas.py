@@ -75,6 +75,28 @@ class WatchOut(_Out):
     created_at: datetime
 
 
+class SettingsOut(BaseModel):
+    scheduled_briefs: bool
+    email_briefs: bool
+    email_alerts: bool
+    max_position_pct: float | None
+
+
+class SettingsUpdate(_In):
+    scheduled_briefs: bool | None = None
+    email_briefs: bool | None = None
+    email_alerts: bool | None = None
+    max_position_pct: float | None = Field(None, ge=1, le=100)   # send null to clear the limit
+
+
+class AlertOut(BaseModel):
+    id: uuid.UUID
+    kind: str
+    ticker: str
+    message: str
+    created_at: datetime
+
+
 class MemoryIn(_In):
     kind: Literal["preference", "fact"] = "preference"  # brief_takeaway is written by the agent only
     content: str = Field(min_length=1, max_length=1000)
