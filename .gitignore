@@ -13,3 +13,5 @@ node_modules/
 *.db-wal
 *.db-shm
 *.sqlite*
+# broker exports used for testing the importer (personal data)
+fidelity-sample.csv

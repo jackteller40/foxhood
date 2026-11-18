@@ -128,44 +128,76 @@ def _parse_date(text: str) -> date:
 
 
 def _parse_number(text: str) -> float | None:
-    text = (text or "").strip().replace(",", "").replace("$", "")
+    text = (text or "").strip().replace(",", "").replace("$", "").replace("+", "")
     return float(text) if text else None
 
 
-def parse_csv(text: str) -> list[dict]:
-    """CSV text -> one dict per data row: either parsed fields or an error. Header names are flexible."""
+class NeedsPurchaseDate(ValueError):
+    """The file has holdings but no purchase dates (e.g. a broker's positions export)."""
+
+
+COST_HEADERS = {"cost basis total", "cost basis", "total cost basis"}
+SKIP_DESCRIPTIONS = ("money market", "pending activity")
+
+
+def _skip_reason(ticker: str, raw: dict) -> str | None:
+    text = " ".join(str(v) for v in raw.values() if isinstance(v, str)).lower()
+    if ticker.endswith("**") or any(s in text for s in SKIP_DESCRIPTIONS):
+        return "Cash or money market, not a holding"
+    return None
+
+
+def parse_csv(text: str, default_date: date | None = None) -> tuple[list[dict], list[dict]]:
+    """CSV text -> (rows, skipped). Each row has parsed fields or an error; skipped rows say why.
+    Header names are flexible, title lines above the header are ignored, and broker footers are skipped.
+    A file without a date column needs `default_date`, applied to every row."""
     import csv
     import io
 
-    reader = csv.DictReader(io.StringIO(text.strip()))
-    if not reader.fieldnames:
-        raise ValueError("The file is empty.")
-    columns = {h: (h or "").strip().lower() for h in reader.fieldnames}
+    lines = text.lstrip("\ufeff").strip().splitlines()
+    # Brokers put titles or blank lines above the header: start at the first line naming a ticker column.
+    first = next((i for i, line in enumerate(lines)
+                  if any(c.strip().lower() in TICKER_HEADERS for c in next(csv.reader([line]), []))), None)
+    if first is None:
+        raise ValueError("Couldn't find a header row with a ticker or symbol column.")
+    reader = csv.DictReader(io.StringIO("\n".join(lines[first:])))
+    columns = {h: (h or "").strip().lower() for h in reader.fieldnames or [] if h}
 
     def pick(names: set[str]) -> str | None:
         return next((orig for orig, low in columns.items() if low in names), None)
 
     c_ticker, c_date = pick(TICKER_HEADERS), pick(DATE_HEADERS)
-    c_shares, c_amount = pick(SHARES_HEADERS), pick(AMOUNT_HEADERS)
-    if not c_ticker or not c_date or not (c_shares or c_amount):
-        raise ValueError("Need columns for ticker, date, and shares or amount "
-                         "(e.g. a header row of: ticker,date,shares,amount).")
-    rows = []
+    c_shares, c_amount, c_cost = pick(SHARES_HEADERS), pick(AMOUNT_HEADERS), pick(COST_HEADERS)
+    if not (c_shares or c_amount):
+        raise ValueError("Need a shares (or quantity) column or a dollar amount column.")
+    if not c_date and default_date is None:
+        raise NeedsPurchaseDate("This file has no purchase dates (broker position exports don't include them). "
+                                "Pick the date you bought these and check again; you can adjust each row after.")
+    rows: list[dict] = []
+    skipped: list[dict] = []
     for raw in reader:
         if not any((v or "").strip() for v in raw.values() if isinstance(v, str)):
-            continue                                       # skip lines with only commas
+            continue                                       # blank lines and lines with only commas
+        line = first + reader.line_num                      # line in the original file
+        ticker = (raw.get(c_ticker) or "").strip().upper()
+        if not ticker:
+            continue                                       # disclaimers and footers under the table
+        if reason := _skip_reason(ticker, raw):
+            skipped.append({"row": line, "ticker": ticker.rstrip("*"), "reason": reason})
+            continue
         if len(rows) >= MAX_IMPORT_ROWS:
             raise ValueError(f"At most {MAX_IMPORT_ROWS} rows per import.")
-        # line_num is the line in the file (blank lines included), so errors point at the right row.
-        row: dict[str, Any] = {"row": reader.line_num, "ticker": (raw.get(c_ticker) or "").strip().upper()}
+        row: dict[str, Any] = {"row": line, "ticker": ticker}
         try:
-            row["purchase_date"] = _parse_date(raw.get(c_date) or "")
+            row["purchase_date"] = _parse_date(raw.get(c_date) or "") if c_date else default_date
             row["shares"] = _parse_number(raw.get(c_shares) or "") if c_shares else None
             row["amount"] = _parse_number(raw.get(c_amount) or "") if c_amount else None
+            if c_cost:
+                row["broker_cost_basis"] = _parse_number(raw.get(c_cost) or "")
         except ValueError as e:
             row["error"] = str(e)
         rows.append(row)
-    return rows
+    return rows, skipped
 
 
 def _check_row(row: dict) -> dict:

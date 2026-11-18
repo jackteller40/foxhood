@@ -36,9 +36,13 @@ async def upcoming_earnings(repo: RepoDep, days: int = 14) -> dict:
 @router.post("/holdings/import/preview", response_model=ImportPreviewOut)
 async def import_preview(body: ImportPreviewIn) -> ImportPreviewOut:
     """Parse and price each CSV row; nothing is saved. The page shows this, then calls /commit."""
-    rows = await service.check_rows(service.parse_csv(body.csv))
+    try:
+        parsed, skipped = service.parse_csv(body.csv, body.default_date)
+    except service.NeedsPurchaseDate as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {"message": str(e), "needs_date": True}) from e
+    rows = await service.check_rows(parsed)
     ok = sum(r["status"] == "ok" for r in rows)
-    return ImportPreviewOut(rows=rows, ok=ok, errors=len(rows) - ok)
+    return ImportPreviewOut(rows=rows, ok=ok, errors=len(rows) - ok, skipped=skipped)
 
 
 @router.post("/holdings/import/commit", response_model=ImportCommitOut, status_code=status.HTTP_201_CREATED)

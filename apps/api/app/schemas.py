@@ -102,8 +102,6 @@ class SignInCheckIn(_In):
 class SignInCheckOut(BaseModel):
     allowed: bool
     reason: str
-    
-
 
 # ---- agent ----
 class ChatIn(_In):
@@ -158,12 +156,12 @@ class UsageOut(BaseModel):
     cap_usd: float
     remaining_usd: float
     resets: str = "midnight US/Eastern"
-    
 
 
 # ---- portfolio import ----
 class ImportPreviewIn(_In):
     csv: str = Field(min_length=1, max_length=200_000)
+    default_date: date | None = None   # for files without a date column, e.g. a broker's positions export
 
 
 class ImportRowOut(BaseModel):
@@ -179,12 +177,20 @@ class ImportRowOut(BaseModel):
     shares_now: float | None = None
     cost_basis: float | None = None
     note: str | None = None
+    broker_cost_basis: float | None = None   # what the broker's file says you paid, to compare with
+
+
+class SkippedRowOut(BaseModel):
+    row: int
+    ticker: str
+    reason: str
 
 
 class ImportPreviewOut(BaseModel):
     rows: list[ImportRowOut]
     ok: int
     errors: int
+    skipped: list[SkippedRowOut] = []
 
 
 class ImportCommitIn(_In):

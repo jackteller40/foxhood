@@ -102,6 +102,39 @@ async def test_csv_needs_the_right_columns(client, signed_in, bad_csv):
     assert r.status_code == 422
 
 
+# Shaped like Fidelity's positions export: BOM, cash row, signed dollar values, trailing commas, no dates, footer.
+FIDELITY = (
+    "\ufeffAccount number,Account name,Symbol,Description,Quantity,Last price,Current value,Cost basis total,Type\r\n"
+    "X1,Individual,SPAXX**,HELD IN MONEY MARKET,,,$1.39,,Cash,\r\n"
+    "X1,Individual,NVDA,NVIDIA CORPORATION COM,10,$130.00,\"$1,300.00\",\"$1,150.00\",Cash,\r\n"
+    "X1,Individual,SPY,SPDR S&P500 ETF TRUST,2,$600.00,+$1200.00,$1054.00,Cash,\r\n"
+    "\r\n\"The data and information in this spreadsheet is provided to you solely for your use.\"\r\n"
+    "\r\n\"Date downloaded Nov-17-2026 8:45 p.m ET\"\r\n"
+)
+
+
+async def test_csv_broker_positions_export_asks_for_a_date(client, signed_in):
+    headers, _ = await signed_in()
+    r = await client.post("/holdings/import/preview", headers=headers, json={"csv": FIDELITY})
+    assert r.status_code == 422 and r.json()["detail"]["needs_date"] is True
+
+    prev = (await client.post("/holdings/import/preview", headers=headers,
+                              json={"csv": FIDELITY, "default_date": "2024-06-04"})).json()
+    assert (prev["ok"], prev["errors"]) == (2, 0)
+    assert [(s["ticker"], s["row"]) for s in prev["skipped"]] == [("SPAXX", 2)]
+    nvda, spy = prev["rows"]
+    assert (nvda["row"], nvda["ticker"], nvda["shares"], nvda["broker_cost_basis"]) == (3, "NVDA", 10.0, 1150.0)
+    assert spy["purchase_date"] == "2024-06-04" and spy["amount"] is None
+
+
+@pytest.mark.parametrize("prefix", ["", "Brokerage Account History\n\n"])
+async def test_csv_title_lines_above_the_header_are_ignored(client, signed_in, prefix):
+    headers, _ = await signed_in()
+    prev = (await client.post("/holdings/import/preview", headers=headers,
+                              json={"csv": prefix + "Ticker,Date,Shares\nNVDA,2024-06-03,1\n"})).json()
+    assert prev["ok"] == 1 and prev["rows"][0]["row"] == (4 if prefix else 2)
+
+
 async def test_upcoming_earnings(client, signed_in, monkeypatch):
     monkeypatch.setattr(market, "datetime", type("D", (), {"now": staticmethod(lambda tz=None: datetime(2026, 11, 17, 9, tzinfo=tz))}))
     headers, _ = await signed_in()
