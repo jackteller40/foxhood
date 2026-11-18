@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -16,7 +17,10 @@ from db.session import engine
 
 log = logging.getLogger("foxhood.api")
 
-app = FastAPI(title="Foxhood API", version="0.2.0")
+# In production the interactive API docs are off: the API is for the Foxhood site, not for browsing.
+_PROD = os.getenv("ENVIRONMENT") == "production"
+app = FastAPI(title="Foxhood API", version="0.2.0", docs_url=None if _PROD else "/docs",
+              redoc_url=None, openapi_url=None if _PROD else "/openapi.json")
 app.include_router(user_data.router)
 app.include_router(internal.router)
 app.include_router(jobs.router)
