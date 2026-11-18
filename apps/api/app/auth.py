@@ -16,6 +16,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rate_limit
 from app.settings import settings
 from db.repo import AdminRepo, normalize_email
 from db.session import get_session
@@ -78,6 +79,7 @@ async def get_current_user(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail)
 
     user = await AdminRepo(session).record_login(email, google_sub)
+    rate_limit.check(user.id)
     return CurrentUser(id=user.id, email=user.email, name=claims.get("name"))
 
 
