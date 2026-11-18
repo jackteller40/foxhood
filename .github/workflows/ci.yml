@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}   # on main, let a running deploy finish
 
 jobs:
   api:
@@ -57,3 +57,26 @@ jobs:
           AUTH_GOOGLE_ID: ci-placeholder
           AUTH_GOOGLE_SECRET: ci-placeholder
           API_JWT_SECRET: ci-placeholder
+  # After both test jobs pass on main: build, migrate and deploy (infra/deploy.sh).
+  deploy:
+    needs: [api, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false   # never stop a deploy halfway; the next one waits its turn
+    permissions:
+      contents: read
+      id-token: write             # lets GitHub prove to Google which repo and branch this is
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT }}
+      - run: bash infra/deploy.sh
+        env:
+          USE_DOCKER: "1"

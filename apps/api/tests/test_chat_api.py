@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from agent.pricing import call_cost
 from app.main import app
 from app.routes import agent as agent_routes
-from app.runs import is_busy, start_rungit
+from app.runs import is_busy, start_run
 from tests.test_agent import ScriptedModel, say
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build both images with Cloud Build, run database migrations, then deploy the API and the site.
-# Run from the repo root:  bash infra/deploy.sh      (later, GitHub Actions does the same on every push)
+# Run from the repo root:  bash infra/deploy.sh   (GitHub Actions runs it with USE_DOCKER=1 on every push to main)
 set -euo pipefail
 
 PROJECT="$(gcloud config get-value project 2>/dev/null)"
@@ -11,8 +11,14 @@ SITE_URL="https://foxhood.app"
 echo "Deploying $TAG to $PROJECT"
 
 echo "== Building images (takes a few minutes the first time) =="
-gcloud builds submit apps/api --tag "$REPO/api:$TAG" --quiet
-gcloud builds submit apps/web --tag "$REPO/web:$TAG" --quiet
+if [[ "${USE_DOCKER:-}" == "1" ]]; then   # GitHub Actions: build on the runner and push
+  gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+  docker build -t "$REPO/api:$TAG" apps/api && docker push "$REPO/api:$TAG"
+  docker build -t "$REPO/web:$TAG" apps/web && docker push "$REPO/web:$TAG"
+else                                      # your laptop: Cloud Build builds it, no Docker needed
+  gcloud builds submit apps/api --tag "$REPO/api:$TAG" --quiet
+  gcloud builds submit apps/web --tag "$REPO/web:$TAG" --quiet
+fi
 
 API_SECRETS="ANTHROPIC_API_KEY=anthropic-api-key:latest,FRED_API_KEY=fred-api-key:latest,\
 FINNHUB_API_KEY=finnhub-api-key:latest,TIINGO_API_KEY=tiingo-api-key:latest,RESEND_API_KEY=resend-api-key:latest,\
@@ -38,7 +44,7 @@ gcloud run deploy foxhood-web --image "$REPO/web:$TAG" --region "$REGION" --quie
   --service-account "foxhood-web@$PROJECT.iam.gserviceaccount.com" \
   --set-secrets "AUTH_SECRET=auth-secret:latest,AUTH_GOOGLE_ID=auth-google-id:latest,\
 AUTH_GOOGLE_SECRET=auth-google-secret:latest,API_JWT_SECRET=api-jwt-secret:latest" \
-  --set-env-vars "API_URL=$API_URL,AUTH_TRUST_HOST=true" \
+  --set-env-vars "API_URL=$API_URL,AUTH_URL=$SITE_URL,AUTH_TRUST_HOST=true" \
   --allow-unauthenticated --memory 512Mi --cpu 1 --concurrency 40 \
   --min-instances 0 --max-instances 3 --timeout 900
 
