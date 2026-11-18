@@ -1,110 +1,143 @@
-# Investment Research Agent
+# Foxhood
 
-A personal investment research assistant for a school project. It gathers market, news and macro
-data and writes personalized research based on each user's interests, watchlist and portfolio:
-a daily pre-market brief, a post-close recap, and a chat for specific questions.
+**Market research, written for your portfolio.** Foxhood is an AI research assistant for a small,
+invite-only group of friends. It knows what you own and what you care about, writes you a brief every
+trading morning, flags what matters during the day, and answers questions about your holdings in plain
+English. Live at [foxhood.app](https://foxhood.app) (invite only).
 
-Built with **LangGraph**, **Claude Haiku** (Anthropic API), an **MCP** server for macro data,
-and a **Streamlit** front end. Market data is real (free sources); users and portfolios are fake demo data.
+> Research only, not financial advice. Foxhood can't place trades, and the agent is blocked from trying.
 
-> Research only. Not financial advice. The app never places trades.
-
-## Features
-- **Daily briefs**: the pre-market brief or post-close recap is generated automatically when the app opens (chosen by the NYSE calendar, including holidays and half days), then cached for the day.
-- **Chat**: ask about your portfolio, a stock, or the market.
-- **Backdated portfolio**: enter shares *or* a dollar amount plus a purchase date; the app looks up the actual price paid, handles stock splits, and compares you to SPY on both price return and total return (with dividends).
-- **Approvals**: the agent must ask before changing your watchlist, holdings or saved memories.
-- **Traces**: every agent run is recorded and viewable in the app and in LangSmith.
-
-## Requirements coverage
-| Requirement | Implementation |
-|---|---|
-| LLM-driven agent loop | `agent/graph.py`: hand-built LangGraph `StateGraph`; the LLM chooses each tool call and when to stop |
-| Tool calling | `agent/tools.py`, `agent/write_tools.py`: 12 local tools, plus 3 MCP tools |
-| Subagent | `agent/subagents/news_analyst.py`: separately prompted news analyst with its own tools and loop; returns validated structured output |
-| Skill | `skills/*/SKILL.md`: three documented procedures loaded on demand via `load_skill` (`agent/skills.py`) |
-| MCP integration | `mcp_servers/macro_server.py`: FastMCP server (FRED data) with 3 tools and 2 resources, connected through `langchain-mcp-adapters` |
-| Persistent memory / retrieval | `storage/db.py`: memories table with `recall_memory` / `remember`; chat history persisted by LangGraph's SQLite checkpointer |
-| Permissions | `config/permissions.yaml` + `agent/permissions.py`: allow / ask / deny, enforced before any tool runs; approvals via LangGraph `interrupt()`. See `docs/permissions.md` |
-| Agent tracing | `agent/tracing.py`: linked local trace events (run → LLM / tool / MCP / skill / memory / permission → subagent) plus LangSmith. Failures investigated in `docs/failure_log.md` |
-| Simple interface | Streamlit app (`app.py`, `pages/`) with a Trace page |
+## What it does
+- **Today**: one sentence on how your day is going (written from the numbers, so it's instant and never
+  wrong), a treemap of your holdings sized by weight and colored by today's move, your value against the
+  same dollars in SPY, upcoming earnings, and this morning's brief.
+- **Chat**: ask about your portfolio, a stock or the market. Answers stream in, show which tools ran, and
+  cite their data sources. Anything that would change your data (watchlist, holdings, saved notes) pauses
+  for your approval first.
+- **Morning briefs**: written for each user at 8:30 a.m. ET on trading days and emailed if they want it.
+- **Alerts**: a holding moved 5% or more, reports earnings on the next trading day, or grew past your own
+  position limit. Rule-based, so they cost nothing to run.
+- **Portfolio**: add purchases by shares or dollars on any past date (it finds the price you paid and handles
+  splits), import broker CSVs including Fidelity's positions export, and keep a watchlist.
+- **Your data**: export everything as one file, or delete your account and all of it.
 
 ## Architecture
-```
-Streamlit UI (brief · portfolio · profile · ask · trace)
-        │
-Main agent (LangGraph: agent → permission gate → [approval] → tools → agent ...)
-   ├── local tools ── portfolio math, yfinance prices, SQLite (users, holdings, memories)
-   ├── MCP client ─── macro-data MCP server ── FRED
-   ├── load_skill ─── skills/*/SKILL.md
-   └── news analyst subagent ── Finnhub news + price performance
-        │
-Tracing: local trace_events table + LangSmith (same run ids)
+
+```mermaid
+flowchart TB
+  user([Browser]) --> web["Next.js site<br/>Google sign-in, Today, Portfolio, Chat, Settings"]
+  web -- "5-minute signed token" --> api["FastAPI<br/>auth, invite list, rate limit, daily AI caps"]
+  sched([Cloud Scheduler]) -- "job key" --> jobs["Jobs<br/>morning briefs, alerts"]
+  jobs --> agent
+  api --> agent
+
+  subgraph agent["Agent (LangGraph)"]
+    direction LR
+    llm["Claude Haiku<br/>picks the next step"] --> gate["Permission gate<br/>allow / ask / deny"]
+    gate --> approval["Approval pause<br/>user says yes or no"]
+    approval --> tools["Tools"]
+    gate --> tools
+    tools --> llm
+  end
+
+  tools --> data["Portfolio and market tools"]
+  tools --> news["News analyst subagent"]
+  tools --> mcp["MCP server: FRED macro data"]
+  tools --> skills["Skills: brief playbooks"]
+  data --> providers[("Tiingo, Finnhub")]
+  api --> db[("Postgres (Neon)<br/>field-level encrypted")]
+  agent --> db
+  jobs --> email["Resend email"]
 ```
 
-## Setup
-Requires Python 3.11+.
+Both apps run on **Google Cloud Run** (scale to zero). Postgres is hosted on **Neon**. Every push to `main`
+that passes CI is built and deployed by GitHub Actions, using Workload Identity Federation (no stored keys).
+
+## How it's built
+
+| Area | What and where |
+|---|---|
+| Agent loop | Hand-built LangGraph `StateGraph` (`apps/api/agent/graph.py`): the model picks each tool call and when to stop; approvals use LangGraph `interrupt()` |
+| Tools | Portfolio, prices, company profiles, earnings, memory (`agent/tools.py`), and write tools that always need approval (`agent/write_tools.py`) |
+| Subagent | News analyst with its own prompt, tools and loop, returning validated structured output (`agent/subagents/news_analyst.py`) |
+| Skills | Brief and deep-dive procedures in `skills/*/SKILL.md`, loaded on demand |
+| MCP | FastMCP server for FRED economic data (`mcp_servers/macro_server.py`) via `langchain-mcp-adapters` |
+| Permissions | Allow / ask / deny policy (`config/permissions.yaml`, `agent/permissions.py`), enforced before any tool runs. Trading is denied outright. See `docs/permissions.md` |
+| Memory | Saved notes the agent can recall, plus conversation history in an encrypted Postgres checkpointer (`agent/checkpoint.py`) |
+| Tracing | Every run, model call, tool call and permission decision is recorded per user (`agent/tracing.py`); failures investigated in `docs/failure_log.md` |
+| Cost control | Per-call pricing (`agent/pricing.py`), daily caps per user and for everyone combined, one run per user at a time |
+| Portfolio math | Backdated lots, split handling, price and total return against SPY (`apps/api/portfolio/`) |
+| Scheduled work | Idempotent jobs for briefs and alerts (`apps/api/jobs/`), triggered by Cloud Scheduler |
+| Web | Next.js 16, Auth.js (Google), a server-side proxy so the browser never talks to the API directly (`apps/web`) |
+
+## Security and privacy
+- **Invite only.** Sign-in is checked against the invite list on every request, and each email is bound to
+  one Google account. Revoking an invite takes effect immediately.
+- **Encrypted at rest, per field.** Holdings, notes, profiles, conversations, briefs and alerts are
+  encrypted with AES-GCM before they reach the database, bound to their owner, table and row so ciphertext
+  can't be copied between users. Keys live in Google Secret Manager.
+- **Isolation by construction.** All data access goes through a repository bound to one verified user id;
+  tests check users can't read or delete each other's data.
+- **Least privilege.** Separate service accounts for the API, the site, deploys and backups, each with
+  only the secrets and permissions it needs.
+- **Limits.** 60 requests a minute per user, daily AI spending caps, security headers, no API docs in
+  production, and no third-party tracing of user data in production.
+- **Backups.** Nightly `pg_dump` to a private bucket, deleted after 30 days; restores are tested.
+- What's shared with which service is on the [privacy page](https://foxhood.app/privacy).
+
+## Data sources
+Tiingo (split- and dividend-adjusted price history), Finnhub (quotes, company data, news, earnings calendar)
+and FRED (economic series). Everything is cached in Postgres and shared across users, so each ticker is
+fetched a few times a day at most. Details and limits: `docs/data-sources.md`.
+
+## Running it locally
+
+Needs Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 22 with pnpm, and Postgres 16.
 
 ```bash
-git clone <your-repo-url>
-cd investment-research-agent
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env               # then fill in your keys
+# API
+cd apps/api
+cp .env.example .env            # fill in the keys listed below
+uv sync
+uv run alembic upgrade head
+uv run python -m app.cli invite you@gmail.com
+uv run uvicorn app.main:app --reload --port 8000
+
+# Site (second terminal)
+cd apps/web
+cp .env.example .env.local      # Google OAuth client, AUTH_SECRET, API_JWT_SECRET (same as the API's)
+pnpm install
+pnpm dev                        # http://localhost:3000
 ```
 
-API keys in `.env` (all have free tiers except Anthropic, which is pay-as-you-go):
-| Key | Get it at |
+| Key | Where to get it |
 |---|---|
 | `ANTHROPIC_API_KEY` | console.anthropic.com |
-| `FRED_API_KEY` | fred.stlouisfed.org (free account → API keys) |
-| `FINNHUB_API_KEY` | finnhub.io |
-| `LANGSMITH_API_KEY` | smith.langchain.com (optional, for hosted traces) |
+| `TIINGO_API_KEY` | tiingo.com (free) |
+| `FINNHUB_API_KEY` | finnhub.io (free) |
+| `FRED_API_KEY` | fred.stlouisfed.org (free) |
+| `FOXHOOD_DATA_KEYS` | generate: `printf 'v1:%s' "$(openssl rand -base64 32)"`, and back it up |
+| `API_JWT_SECRET` | generate: `openssl rand -hex 32` |
+| `RESEND_API_KEY` | resend.com (optional; without it no email is sent) |
 
-Create the demo users (three fake profiles: aggressive tech, balanced ETF, income focused):
-```bash
-python -m storage.seed_demo --reset
-```
-
-## Run
-```bash
-python -m streamlit run app.py
-```
-Use `python -m streamlit` (not bare `streamlit`) so the app runs in the project's virtual environment.
+Scheduled jobs can be run by hand: `uv run python -m jobs briefs` or `uv run python -m jobs alerts`.
 
 ## Tests
-Run from the repo root with the venv active:
-| Command | Checks |
-|---|---|
-| `python -m tests.smoke_data` | yfinance, FRED and Finnhub connections, caching |
-| `python -m tests.smoke_portfolio` | Backdating, splits, P&L, SPY benchmark |
-| `python -m tests.smoke_storage` | Database, demo users, memory search, traces (**resets `app.db`**) |
-| `python -m tests.smoke_mcp` | MCP server tools and resources |
-| `python -m tests.smoke_agent` | Main agent tool selection and tracing |
-| `python -m tests.smoke_briefs` | Skills, news subagent, briefs (pre-market or close depending on time) |
-| `python -m tests.smoke_permissions` | Policy rules + approve / reject / deny scenarios |
-
-## Project structure
+```bash
+cd apps/api && uv run ruff check . && uv run pytest -q      # 107 tests, fake market data, no network
+cd apps/web && pnpm lint && pnpm build
 ```
-app.py                  Home: daily brief
-pages/                  Portfolio, Profile, Ask (chat), Trace
-ui/common.py            Shared UI: user picker, trace viewer
-agent/                  Graph, runner, tools, prompts, skills, permissions, tracing, briefs
-agent/subagents/        News analyst subagent
-mcp_servers/            Macro-data MCP server
-skills/                 SKILL.md procedures
-datasources/            yfinance, FRED, Finnhub clients + disk cache
-portfolio/              Backdating, splits, returns, benchmark
-storage/                SQLite schema, queries, demo seed data
-core/                   Config, market clock, async helper
-config/permissions.yaml Permission policy
-docs/                   Permission policy notes, failure log
-tests/                  Smoke tests
-```
+CI runs both on every push, against a real Postgres.
 
-## Limitations
-- yfinance is an unofficial Yahoo client: fine for a proof of concept, not for production or redistribution.
-- Finnhub's free tier covers North American company news only.
-- Free data sources mean some calls are slow on first use; results are cached on disk (`.cache/`).
-- Traces appear in the app after a run finishes, not live.
+## Deploying your own
+`infra/setup.sh` (registry, service accounts, secrets), `infra/deploy.sh` (build, migrate, deploy),
+`infra/github-setup.sh` (deploys from GitHub Actions), `infra/scheduler.sh` and `infra/backup-setup.sh`.
+Roughly $5 a month plus Claude usage, which the daily caps keep under $15.
+
+## Repo layout
+```
+apps/api/    FastAPI, the agent, jobs, portfolio math, data sources, database (Alembic migrations)
+apps/web/    Next.js site
+infra/       Google Cloud setup and deploy scripts
+docs/        Data sources, permission policy, failure log
+```
