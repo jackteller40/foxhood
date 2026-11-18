@@ -99,3 +99,48 @@ async def test_job_endpoints_need_the_key(client, monkeypatch):
     monkeypatch.setattr(job_routes, "settings", replace(job_routes.settings, jobs_secret="k" * 32))
     assert (await client.post("/jobs/alerts")).status_code == 401
     assert (await client.post("/jobs/alerts", headers={"X-Job-Key": "wrong"})).status_code == 401
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Turns email on with a fake Resend: every message lands in this list instead of being sent."""
+    from notify import email
+    sent: list[dict] = []
+    monkeypatch.setattr(email, "settings", replace(email.settings, resend_api_key="re_test", app_url="https://foxhood.app"))
+    monkeypatch.setattr(email, "_post", sent.append)
+    return sent
+
+
+async def test_brief_is_emailed_when_written(client, signed_in, outbox):
+    headers, repo = await signed_in()
+    await client.post("/holdings", headers=headers, json=NVDA_10)
+    model = ScriptedModel(responses=[say("**NVDA** reports Thursday. S&P futures flat. <script>x</script>")])
+    result = await run_morning_briefs(WED, model=model, use_mcp=False, user_ids=[repo.user_id])
+    assert result["emailed"] == 1
+    [msg] = outbox
+    assert msg["to"] == [(await repo.get_profile())["email"]] and msg["subject"] == "Your morning brief for Wednesday, November 18"
+    assert "<strong>NVDA</strong>" in msg["html"] and "<script>" not in msg["html"]       # markdown yes, raw HTML no
+    assert "https://foxhood.app/settings" in msg["html"] and "Not financial advice" in msg["html"]
+
+    await run_morning_briefs(WED, model=model, use_mcp=False, user_ids=[repo.user_id])
+    assert len(outbox) == 1                                                       # already written: no second email
+
+
+async def test_new_alerts_are_emailed_once(client, signed_in, fake_market, on_wednesday, outbox):
+    headers, repo = await signed_in()
+    await client.post("/holdings", headers=headers, json=NVDA_10)
+    fake_market["finnhub"].quotes["NVDA"] = {"c": 130.0, "pc": 120.0}
+    fake_market["finnhub"].calendar = []
+    assert await check_user(repo.user_id, WED) == 1
+    assert [m["subject"] for m in outbox] == ["NVDA is up 8.3% today."]
+    assert await check_user(repo.user_id, WED) == 0 and len(outbox) == 1
+
+
+async def test_email_switches_are_respected(client, signed_in, fake_market, on_wednesday, outbox):
+    headers, repo = await signed_in()
+    await client.post("/holdings", headers=headers, json=NVDA_10)
+    await repo.update_settings(email_briefs=False, email_alerts=False, max_position_pct=10)
+    model = ScriptedModel(responses=[say("Morning. Not financial advice.")])
+    assert (await run_morning_briefs(WED, model=model, use_mcp=False, user_ids=[repo.user_id]))["emailed"] == 0
+    assert await check_user(repo.user_id, WED) >= 1
+    assert outbox == []

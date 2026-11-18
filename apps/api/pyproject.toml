@@ -15,6 +15,7 @@ dependencies = [
     "langgraph>=1.0",
     "langgraph-checkpoint-postgres>=3.2.1",
     "langsmith>=0.4",
+    "markdown>=3.11.3",
     "mcp>=1.9",
     "pandas>=2.2",
     "psycopg-pool>=3.3.3",

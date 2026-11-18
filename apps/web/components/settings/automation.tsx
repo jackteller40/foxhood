@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { Settings } from "@/lib/today";
 
 // Morning brief on or off, and the position limit the alerts check against.
-export function Automation({ initial }: { initial: Settings }) {
+export function Automation({ initial, email }: { initial: Settings; email: string }) {
   const [s, setS] = useState(initial);
   const [limit, setLimit] = useState(initial.max_position_pct?.toString() ?? "");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -27,16 +27,25 @@ export function Automation({ initial }: { initial: Settings }) {
 
   return (
     <div className="grid max-w-2xl gap-6">
-      <label className="flex cursor-pointer items-start gap-3">
-        <input type="checkbox" checked={s.scheduled_briefs} disabled={busy}
-          onChange={(e) => void save({ scheduled_briefs: e.target.checked },
-            e.target.checked ? "Your brief will be ready each trading morning." : "Morning briefs turned off.")}
-          className="mt-1 size-4 accent-fox" />
-        <span>
-          <span className="font-medium">Write my brief every trading morning</span>
-          <span className="block text-ink-muted">Ready by about 8:30 a.m. ET, so Today opens with it. Counts toward your daily AI limit.</span>
-        </span>
-      </label>
+      {([
+        ["scheduled_briefs", "Write my brief every trading morning",
+          "Ready by about 8:30 a.m. ET, so Today opens with it. Counts toward your daily AI limit.",
+          "Your brief will be ready each trading morning.", "Morning briefs turned off."],
+        ["email_briefs", "Email me the morning brief", `Sent to ${email} when it's written.`,
+          "You'll get the brief by email.", "Brief emails turned off."],
+        ["email_alerts", "Email me alerts", "One email per check with anything new, at most once per stock per day.",
+          "You'll get alerts by email.", "Alert emails turned off."],
+      ] as const).map(([key, label, hint, on, off]) => (
+        <label key={key} className="flex cursor-pointer items-start gap-3">
+          <input type="checkbox" checked={s[key]} disabled={busy || (key === "email_briefs" && !s.scheduled_briefs)}
+            onChange={(e) => void save({ [key]: e.target.checked }, e.target.checked ? on : off)}
+            className="mt-1 size-4 accent-fox" />
+          <span>
+            <span className="font-medium">{label}</span>
+            <span className="block text-ink-muted">{hint}</span>
+          </span>
+        </label>
+      ))}
 
       <form
         onSubmit={(e) => {

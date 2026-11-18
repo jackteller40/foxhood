@@ -44,7 +44,7 @@ export default async function SettingsPage() {
           </Section>
           {prefs && (
             <Section id="s-auto" title="Briefs and alerts">
-              <Automation initial={prefs} />
+              <Automation initial={prefs} email={profile.email} />
             </Section>
           )}
           <Section id="s-notes" title="What Foxhood remembers">

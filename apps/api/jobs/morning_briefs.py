@@ -16,6 +16,7 @@ from core.market_clock import BriefSlot, is_trading_day
 from datasources.market import ET
 from db.repo import AdminRepo
 from db.session import SessionLocal
+from notify import email
 
 log = logging.getLogger("foxhood.jobs.briefs")
 
@@ -31,6 +32,7 @@ async def run_morning_briefs(now: datetime | None = None, *, model: BaseChatMode
         async with SessionLocal() as s:
             user_ids = await AdminRepo(s).active_user_ids()
     outcomes: dict[str, str] = {}
+    emailed = 0
     for uid in user_ids:
         async with user_repo(uid) as repo:
             prefs = await repo.get_settings()
@@ -50,10 +52,14 @@ async def run_morning_briefs(now: datetime | None = None, *, model: BaseChatMode
             outcomes[str(uid)] = "over budget"
         else:
             try:
-                await get_or_create_brief(uid, slot, model=model, use_mcp=use_mcp)
+                brief = await get_or_create_brief(uid, slot, model=model, use_mcp=use_mcp)
                 outcomes[str(uid)] = "written"
+                if prefs["email_briefs"]:
+                    async with user_repo(uid) as repo:
+                        to = (await repo.get_profile())["email"]
+                    emailed += await email.send(to, *email.brief_email(brief["content"], slot.brief_date))
             except Exception:
                 log.exception("Morning brief failed for user %s", uid)
                 outcomes[str(uid)] = "failed"
     return {"ran": True, "brief_date": slot.brief_date.isoformat(), "users": len(user_ids),
-            "outcomes": dict(Counter(outcomes.values()))}
+            "outcomes": dict(Counter(outcomes.values())), "emailed": emailed}

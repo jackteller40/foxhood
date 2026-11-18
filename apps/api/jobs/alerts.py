@@ -14,6 +14,7 @@ from datasources import market
 from datasources.market import ET
 from db.repo import AdminRepo
 from db.session import SessionLocal
+from notify import email
 from portfolio.service import portfolio_view
 
 log = logging.getLogger("foxhood.jobs.alerts")
@@ -45,7 +46,12 @@ async def check_user(uid: uuid.UUID, now: datetime) -> int:
             found.append(("earnings_tomorrow", e["ticker"], {"date": e["date"], "timing": e["timing"],
                                                              "eps_estimate": e["eps_estimate"]}))
     async with user_repo(uid) as repo:
-        return len(await repo.add_alerts(now.date(), found))
+        added = await repo.add_alerts(now.date(), found)
+        if added and prefs["email_alerts"]:
+            to = (await repo.get_profile())["email"]
+            if await email.send(to, *email.alerts_email([alert_message(a.kind, a.ticker, a.data, now) for a in added])):
+                await repo.mark_alerts_emailed([a.id for a in added])
+    return len(added)
 
 
 async def run_alerts(now: datetime | None = None, user_ids: list[uuid.UUID] | None = None) -> dict:

@@ -416,6 +416,13 @@ class UserRepo:
         await self.s.commit()
         return [self._alert(r) for r in added]
 
+    async def mark_alerts_emailed(self, alert_ids: list[uuid.UUID]) -> None:
+        rows = (await self.s.execute(select(Alert).where(Alert.user_id == self.user_id,
+                                                         Alert.id.in_(alert_ids)))).scalars().all()
+        for row in rows:
+            row.emailed_at = utcnow()
+        await self.s.commit()
+
     async def dismiss_alert(self, alert_id: uuid.UUID) -> None:
         row = await self._get_owned(Alert, alert_id)
         row.dismissed_at = row.dismissed_at or utcnow()

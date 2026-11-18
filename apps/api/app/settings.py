@@ -15,6 +15,9 @@ class ApiSettings:
     daily_cap_user_usd: Decimal    # per person, resets at midnight ET
     daily_cap_total_usd: Decimal   # everyone combined: the kill switch for the Claude bill
     jobs_secret: str               # Cloud Scheduler sends it to /jobs/*; empty disables those endpoints
+    resend_api_key: str            # empty: no email is sent (briefs and alerts still appear in the app)
+    email_from: str
+    app_url: str                   # links in emails point here
 
 
 def _async_url(url: str) -> str:
@@ -34,6 +37,9 @@ def _load() -> ApiSettings:
         daily_cap_user_usd=Decimal(os.getenv("DAILY_CAP_USER_USD", "0.15")),
         daily_cap_total_usd=Decimal(os.getenv("DAILY_CAP_TOTAL_USD", "0.50")),
         jobs_secret=os.getenv("JOBS_SECRET", ""),
+        resend_api_key=os.getenv("RESEND_API_KEY", ""),
+        email_from=os.getenv("EMAIL_FROM", "Foxhood <brief@foxhood.app>"),
+        app_url=os.getenv("APP_URL", "http://localhost:3000").rstrip("/"),
     )
 
 
