@@ -68,7 +68,10 @@ export default async function SettingsPage() {
             )}
           </Section>
           <Section id="s-data" title="Your data">
-            <p className="max-w-2xl text-ink-muted">Everything Foxhood stores about you, as one JSON file.</p>
+            <p className="max-w-2xl text-ink-muted">
+              Everything Foxhood stores about you, as one JSON file. See the{" "}
+              <a href="/privacy" className="font-semibold text-fox hover:text-fox-dark">privacy page</a> for who handles what.
+            </p>
             <a href="/api/foxhood/me/export" download="foxhood-export.json"
               className="mt-3 inline-flex h-10 items-center rounded-lg border border-rule-strong bg-paper-raised px-4 text-sm font-medium hover:bg-muted">
               Download my data

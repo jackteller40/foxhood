@@ -30,7 +30,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
           <Button type="submit" className="h-11 px-5 text-[15px] font-semibold">Sign in with Google</Button>
         </form>
       </div>
-      <p className="text-[13px] text-ink-muted">Not financial advice.</p>
+      <p className="text-[13px] text-ink-muted">
+        Not financial advice. <a href="/privacy" className="underline underline-offset-2 hover:text-ink">Privacy</a>
+      </p>
     </main>
   );
 }
