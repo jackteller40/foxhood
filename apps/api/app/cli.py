@@ -4,6 +4,7 @@
     uv run python -m app.cli revoke friend@gmail.com
     uv run python -m app.cli list-invites
     uv run python -m app.cli list-users
+    uv run python -m app.cli make-admin you@gmail.com
     uv run python -m app.cli seed-demo you@gmail.com --persona aggressive [--replace]
 """
 from __future__ import annotations
@@ -27,6 +28,12 @@ async def invite(email: str) -> None:
 async def revoke(email: str) -> None:
     async with SessionLocal() as s:
         print("Revoked." if await AdminRepo(s).revoke(email) else "No invite found for that email.")
+
+
+async def make_admin(email: str) -> None:
+    async with SessionLocal() as s:
+        ok = await AdminRepo(s).set_admin(email)
+        print(f"{email} is now an admin." if ok else "No user with that email yet: sign in once first.")
 
 
 async def list_invites() -> None:
@@ -74,6 +81,7 @@ def main() -> None:
     sub.add_parser("invite").add_argument("email")
     sub.add_parser("revoke").add_argument("email")
     sub.add_parser("list-invites")
+    sub.add_parser("make-admin").add_argument("email")
     sub.add_parser("list-users")
     sd = sub.add_parser("seed-demo")
     sd.add_argument("email")
@@ -85,6 +93,8 @@ def main() -> None:
         asyncio.run(invite(a.email))
     elif a.cmd == "revoke":
         asyncio.run(revoke(a.email))
+    elif a.cmd == "make-admin":
+        asyncio.run(make_admin(a.email))
     elif a.cmd == "list-invites":
         asyncio.run(list_invites())
     elif a.cmd == "list-users":

@@ -125,6 +125,10 @@ class SignInCheckOut(BaseModel):
     allowed: bool
     reason: str
 
+
+class AdminInviteIn(_In):
+    email: str = Field(min_length=3, max_length=320)
+
 # ---- agent ----
 class ChatIn(_In):
     message: str = Field(min_length=1, max_length=4000)

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from app.routes import agent, internal, jobs, portfolio, user_data
+from app.routes import admin, agent, internal, jobs, portfolio, user_data
 from datasources.clients import DataProviderError
 from db.crypto import DecryptionError
 from db.repo import NotFound
@@ -24,6 +24,7 @@ app = FastAPI(title="Foxhood API", version="0.2.0", docs_url=None if _PROD else 
 app.include_router(user_data.router)
 app.include_router(internal.router)
 app.include_router(jobs.router)
+app.include_router(admin.router)
 app.include_router(agent.router)
 app.include_router(portfolio.router)
 

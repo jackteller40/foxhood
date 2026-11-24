@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from app.settings import settings
 from jobs.alerts import run_alerts
 from jobs.morning_briefs import run_morning_briefs
+from jobs.record import recorded
 
 
 def require_job_key(x_job_key: Annotated[str | None, Header()] = None) -> None:
@@ -29,9 +30,9 @@ def job_options() -> dict:
 
 @router.post("/briefs")
 async def morning_briefs(options: Annotated[dict, Depends(job_options)]) -> dict:
-    return await run_morning_briefs(**options)
+    return await recorded("briefs", lambda: run_morning_briefs(**options))
 
 
 @router.post("/alerts")
 async def alerts() -> dict:
-    return await run_alerts()
+    return await recorded("alerts", run_alerts)

@@ -12,6 +12,7 @@ const ALLOWED_PATHS = [
   "watchlist", "watchlist/*", "memories", "memories/*",
   "chat", "threads", "threads/*", "threads/*/approve",
   "briefs", "briefs/today", "usage/today",
+  "admin/overview", "admin/runs", "admin/jobs", "admin/invites", "admin/invites/revoke",
 ];
 const ALLOWED = new RegExp(`^(${ALLOWED_PATHS.map((p) => p.replaceAll("*", "[^/]+")).join("|")})$`);
 

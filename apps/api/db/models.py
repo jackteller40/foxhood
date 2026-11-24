@@ -115,6 +115,18 @@ class Alert(Base):
     emailed_at: Mapped[datetime | None] = mapped_column(TS)
 
 
+class JobRun(Base):
+    """One run of a scheduled job (morning briefs, alerts): when, whether it worked, and its counts."""
+    __tablename__ = "job_runs"
+    __table_args__ = (Index("ix_job_runs_job_started", "job", "started_at"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    job: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(TS)
+    ok: Mapped[bool | None] = mapped_column(Boolean)
+    summary: Mapped[dict] = mapped_column(JSONB, default=dict)   # counts only, never user content
+
+
 class ChatThread(Base):
     """One conversation. The id is the LangGraph thread_id; the messages live in the (encrypted) checkpoints."""
     __tablename__ = "chat_threads"

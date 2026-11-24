@@ -13,12 +13,25 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import String, case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.crypto import field_aad, get_cipher
-from db.models import Alert, Brief, ChatThread, Holding, Invite, Memory, TraceEvent, Usage, User, WatchlistItem, utcnow
+from db.models import (
+    Alert,
+    Brief,
+    ChatThread,
+    Holding,
+    Invite,
+    JobRun,
+    Memory,
+    TraceEvent,
+    Usage,
+    User,
+    WatchlistItem,
+    utcnow,
+)
 
 RISK_LEVELS = {"low", "medium", "high"}
 MEMORY_KINDS = {"preference", "fact", "brief_takeaway"}
@@ -634,6 +647,73 @@ class AdminRepo:
         """Users whose invite is still active (revoked friends get no scheduled work)."""
         q = (select(User.id).join(Invite, Invite.email == User.email)
              .where(Invite.revoked_at.is_(None)).order_by(User.created_at))
+        return list((await self.s.execute(q)).scalars().all())
+
+    # ---- admin page: metadata only, never decrypted user content ----
+    async def set_admin(self, email: str, is_admin: bool = True) -> bool:
+        user = await self.find_user(email)
+        if user is None:
+            return False
+        user.is_admin = is_admin
+        await self.s.commit()
+        return True
+
+    async def is_admin(self, user_id: uuid.UUID) -> bool:
+        user = await self.s.get(User, user_id)
+        return bool(user and user.is_admin)
+
+    async def people(self) -> list[dict]:
+        """Everyone invited or signed up: invite status, last sign-in, holdings count, AI spend today."""
+        spent = dict((await self.s.execute(
+            select(Usage.user_id, func.sum(Usage.cost_usd)).where(Usage.created_at >= start_of_today_et())
+            .group_by(Usage.user_id))).all())
+        holdings = dict((await self.s.execute(
+            select(Holding.user_id, func.count()).group_by(Holding.user_id))).all())
+        users = {u.email: u for u in (await self.s.execute(select(User))).scalars().all()}
+        out = []
+        for inv in await self.list_invites():
+            u = users.pop(inv.email, None)
+            out.append(self._person(inv.email, u, inv, spent, holdings))
+        out += [self._person(email, u, None, spent, holdings) for email, u in users.items()]
+        return sorted(out, key=lambda p: (p["status"] == "revoked", p["email"]))
+
+    @staticmethod
+    def _person(email: str, u: User | None, inv: Invite | None, spent: dict, holdings: dict) -> dict:
+        status = ("revoked" if inv and inv.revoked_at else "active" if u and u.last_login_at
+                  else "invited" if inv else "no invite")
+        return {"email": email, "status": status, "is_admin": bool(u and u.is_admin),
+                "invited_at": inv.created_at if inv else None, "last_login_at": u.last_login_at if u else None,
+                "holdings": holdings.get(u.id, 0) if u else 0,
+                "spent_today_usd": float(spent.get(u.id, 0)) if u else 0.0}
+
+    async def recent_runs(self, limit: int = 40) -> list[dict]:
+        """Agent runs across everyone, newest first: who, what kind, status, tool calls, errors, cost."""
+        t = TraceEvent
+        runs = (select(t.root_run_id.label("run_id"), func.min(t.user_id.cast(String)).label("user_id"),
+                       func.max(case((t.event_type == "run", t.name))).label("task"),
+                       func.max(case((t.event_type == "run", t.status))).label("status"),
+                       func.min(t.started_at).label("started_at"),
+                       func.max(func.coalesce(t.ended_at, t.started_at)).label("ended_at"),
+                       func.count().filter(t.event_type.in_(("tool", "mcp", "subagent"))).label("tool_calls"),
+                       func.count().filter(t.status == "error").label("errors"),
+                       func.count().filter(t.status == "denied").label("denials"))
+                .group_by(t.root_run_id).order_by(func.min(t.started_at).desc()).limit(limit)).subquery()
+        cost = (select(Usage.run_id, func.sum(Usage.cost_usd).label("cost")).group_by(Usage.run_id)).subquery()
+        q = (select(runs, User.email, cost.c.cost)
+             .outerjoin(User, User.id.cast(String) == runs.c.user_id)
+             .outerjoin(cost, cost.c.run_id == runs.c.run_id)
+             .order_by(runs.c.started_at.desc()))
+        rows = []
+        for r in (await self.s.execute(q)).all():
+            m = dict(r._mapping)
+            seconds = (m["ended_at"] - m["started_at"]).total_seconds() if m["ended_at"] else None
+            rows.append({"run_id": m["run_id"], "email": m["email"], "task": m["task"], "status": m["status"],
+                         "started_at": m["started_at"], "seconds": seconds, "tool_calls": m["tool_calls"],
+                         "errors": m["errors"], "denials": m["denials"], "cost_usd": float(m["cost"] or 0)})
+        return rows
+
+    async def job_runs(self, limit: int = 20) -> list[JobRun]:
+        q = select(JobRun).order_by(JobRun.started_at.desc()).limit(limit)
         return list((await self.s.execute(q)).scalars().all())
 
     async def find_user(self, email: str) -> User | None:
