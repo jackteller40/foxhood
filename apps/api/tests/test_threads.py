@@ -77,3 +77,19 @@ async def test_account_deletion_erases_checkpoints(client, invited_user, session
     resp = await client.request("DELETE", "/me", json={"confirm": "DELETE"}, headers=headers)
     assert resp.status_code == 204
     assert await _checkpoint_rows(session, f"{user.id}:%") == 0
+
+
+async def test_first_runs_at_once_dont_race_creating_tables(make_user):
+    """Many agent runs starting together on a fresh server must not crash creating LangGraph's tables."""
+    import asyncio
+
+    from agent import checkpoint
+    from tests.test_agent import ScriptedModel, run, say
+
+    alice = await make_user()
+    async with checkpoint.open_checkpointer() as saver, saver.conn.cursor() as cur:
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints", "checkpoint_migrations"):
+            await cur.execute(f"DROP TABLE IF EXISTS {table}")
+    checkpoint._setup_done = False
+    results = await asyncio.gather(*(run(alice, "hi", model=ScriptedModel(responses=[say("hello")])) for _ in range(6)))
+    assert all(r.status == "ok" for r, _ in results)

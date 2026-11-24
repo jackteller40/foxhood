@@ -18,3 +18,5 @@ fidelity-sample.csv
 
 # files Claude sends for previewing (not part of the project)
 Claude outputs/
+# eval run outputs (answers from test portfolios)
+apps/api/evals/results/

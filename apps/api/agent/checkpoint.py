@@ -5,6 +5,7 @@ AES-256-GCM data keys as the rest of the app (FOXHOOD_DATA_KEYS), under its own 
 No second key to manage, and key rotation works the same way."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -33,6 +34,8 @@ class _DataKeyCipher:
 
 SERDE = EncryptedSerializer(_DataKeyCipher())
 _setup_done = False
+_setup_lock = asyncio.Lock()
+SETUP_LOCK_KEY = 7_412_903_001   # any fixed number; Postgres advisory lock shared by every API instance
 
 
 def _conninfo() -> str:
@@ -47,11 +50,20 @@ async def open_checkpointer() -> AsyncIterator[AsyncPostgresSaver]:
     global _setup_done
     async with AsyncPostgresSaver.from_conn_string(_conninfo(), serde=SERDE) as saver:
         if not _setup_done:
-            await saver.setup()
-            _setup_done = True
+            # Two runs starting at once (here, or on another server instance) would both try to create
+            # the tables and one would crash. The lock makes them take turns; the second finds them done.
+            async with _setup_lock:
+                if not _setup_done:
+                    async with saver.conn.cursor() as cur:
+                        await cur.execute("SELECT pg_advisory_lock(%s)", (SETUP_LOCK_KEY,))
+                        try:
+                            await saver.setup()
+                        finally:
+                            await cur.execute("SELECT pg_advisory_unlock(%s)", (SETUP_LOCK_KEY,))
+                    _setup_done = True
         yield saver
-        
-        
+
+
 async def delete_thread_checkpoints(thread_id: str) -> None:
     async with open_checkpointer() as saver:
         await saver.adelete_thread(thread_id)

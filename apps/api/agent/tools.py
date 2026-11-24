@@ -209,6 +209,8 @@ def make_local_tools(user_id: uuid.UUID) -> list:
             return _dump({"earnings": [], "note": "No holdings or watchlist tickers to check."})
         days = max(1, min(int(days_ahead), 30))
         rows = await asyncio.to_thread(market.get_earnings_calendar, wanted, days)
+        for r in rows:   # give the weekday outright: models often get it wrong when working it out from a date
+            r["weekday"] = date.fromisoformat(r["date"]).strftime("%A")
         return _dump({"checked": wanted, "window_days_ahead": days, "earnings": rows,
                       "note": None if rows else "None of these report in this window.",
                       "source": "Finnhub earnings calendar"})

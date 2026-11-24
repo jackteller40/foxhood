@@ -16,6 +16,18 @@ def fake(fake_market):
     return fake_market
 
 
+def test_history_is_split_adjusted_and_end_exclusive(fake):
+    df = market.get_price_history("NVDA", "2024-06-03", "2024-06-10")
+    assert list(df.index.strftime("%Y-%m-%d")) == ["2024-06-03", "2024-06-04", "2024-06-07"]
+    assert df["Close"].tolist() == pytest.approx([115.0, 116.0, 120.0])   # pre-split prices / 10
+    assert df["Adj Close"].iloc[0] == pytest.approx(114.9)
+    after = market.get_price_history("NVDA", "2024-06-10")
+    assert after["Close"].tolist() == pytest.approx([121.0, 120.0])        # already in today's shares
+    assert after["Dividends"].tolist() == [0.0, 0.01]
+    splits = market.get_splits("NVDA")
+    assert list(splits.index.strftime("%Y-%m-%d")) == ["2024-06-10"] and splits.iloc[0] == 10.0
+
+
 def test_cached_history_round_trips(fake):
     first = market.get_price_history("NVDA", "2024-06-03")
     fake["histories"]["NVDA"] = None      # provider gone: the second call must come from the cache
@@ -78,6 +90,7 @@ async def test_earnings_tool_uses_holdings_and_watchlist(fake, make_user, monkey
     out = json.loads(await tool.ainvoke({}))
     assert out["checked"] == ["AAPL", "NVDA"]
     assert [e["ticker"] for e in out["earnings"]] == ["AAPL", "NVDA"] and out["source"] == "Finnhub earnings calendar"
+    assert [e["weekday"] for e in out["earnings"]] == ["Monday", "Thursday"]   # Nov 16 and Nov 19, 2026
 
 
 def test_tiingo_errors_are_readable(monkeypatch):
