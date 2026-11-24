@@ -33,6 +33,7 @@ const TOOL_LABELS: Record<string, string> = {
   add_holding: "Recording a purchase",
   submit_trade_order: "Placing a trade",
   get_earnings_calendar: "Checking earnings dates",
+  simulate_portfolio_change: "Running the what-if",
 };
 const label = (name: string) => TOOL_LABELS[name] ?? name;
 
@@ -240,7 +241,7 @@ export default function ChatApp({ initialThreads, initialUsage, initialQuestion 
             {messages.length === 0 && (
               <div className="pt-12 md:pt-20">
                 <p className="text-2xl font-semibold tracking-tight">What do you want to know?</p>
-                <p className="mt-2 text-ink-muted">Try &quot;How is my portfolio doing today?&quot; or &quot;When does NVDA report?&quot;</p>
+                <p className="mt-2 text-ink-muted">Try Try &quot;How is my portfolio doing today?&quot; or &quot;When does NVDA report?&quot;quot;How is my portfolio doing today?Try &quot;How is my portfolio doing today?&quot; or &quot;When does NVDA report?&quot;quot; or Try &quot;How is my portfolio doing today?&quot; or &quot;When does NVDA report?&quot;quot;What if I sold half my biggest position?Try &quot;How is my portfolio doing today?&quot; or &quot;When does NVDA report?&quot;quot;</p>
               </div>
             )}
             {messages.map((m, i) => (

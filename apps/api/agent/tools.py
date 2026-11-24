@@ -16,12 +16,13 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 from datasources import market
 from datasources.market import ET
 from db.repo import UserRepo
 from db.session import SessionLocal
-from portfolio import metrics
+from portfolio import metrics, whatif
 from portfolio.positions import Lot, resolve_lot
 
 
@@ -96,6 +97,15 @@ def _summary(resolved: list, positions: pd.DataFrame) -> dict:
     summary = metrics.portfolio_summary(resolved, positions)
     summary["sector_exposure_pct"] = metrics.sector_exposure(positions).to_dict()
     return summary
+
+
+class PortfolioChange(BaseModel):
+    """One hypothetical trade. Give exactly one of shares, amount_usd or fraction."""
+    ticker: str
+    action: str = Field(description="'buy' or 'sell'")
+    shares: float | None = None
+    amount_usd: float | None = Field(None, description="Dollar amount to buy or sell")
+    fraction: float | None = Field(None, description="Sells only: share of the position, 0.5 = half")
 
 
 def make_local_tools(user_id: uuid.UUID) -> list:
@@ -203,5 +213,22 @@ def make_local_tools(user_id: uuid.UUID) -> list:
                       "note": None if rows else "None of these report in this window.",
                       "source": "Finnhub earnings calendar"})
 
+    @tool
+    async def simulate_portfolio_change(changes: list[PortfolioChange]) -> str:
+        """What-if for the current user's portfolio: apply hypothetical buys and sells (nothing is saved or
+        traded) and compare before vs after: total value, weights, largest position, sector mix, estimated
+        realized gain on sales, and the past year's return, volatility and worst drop for today's holdings,
+        the changed holdings, and SPY. Use for "what if I sold half my NVDA?", "what if I put $5k into VOO?",
+        or "what if I trimmed NVDA to 25%?" (work out the sale size from get_positions first)."""
+        _resolved, _errors, positions = await _portfolio()
+        if positions.empty:
+            return _dump({"error": "User has no holdings to simulate against."})
+        parsed = [whatif.Change(c.ticker, c.action.strip().lower(), c.shares, c.amount_usd, c.fraction) for c in changes]
+        try:
+            result = await asyncio.to_thread(whatif.simulate, positions, parsed, datetime.now(ET).date())
+        except ValueError as e:
+            return _dump({"error": str(e)})
+        return _dump(result)
+
     return [get_portfolio_summary, get_positions, get_watchlist_snapshot, get_price_performance,
-            get_company_profile, recall_memory, get_earnings_calendar]
+            get_company_profile, recall_memory, get_earnings_calendar, simulate_portfolio_change]

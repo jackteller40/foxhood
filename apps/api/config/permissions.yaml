@@ -14,6 +14,7 @@ allow:                   # read-only: run without asking
   - get_price_performance
   - get_company_profile
   - get_earnings_calendar
+  - simulate_portfolio_change   # hypothetical only: saves nothing, trades nothing
   - recall_memory
   - load_skill
   - delegate_news_analysis
