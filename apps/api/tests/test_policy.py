@@ -24,3 +24,12 @@ def test_policy_decisions(policy, tool, args, action):
 
 def test_unattended_turns_ask_into_deny():
     assert Policy.load(unattended=True).check("remember", {"content": "x"}).action == "deny"
+
+
+def test_mcp_server_gets_the_api_keys(monkeypatch):
+    """Production has no .env file: the macro server must inherit FRED_API_KEY and the database settings."""
+    from agent.mcp_client import server_config
+
+    monkeypatch.setenv("FRED_API_KEY", "fred-test-key")
+    env = server_config()["macro"]["env"]
+    assert env["FRED_API_KEY"] == "fred-test-key" and "DATABASE_URL" in env and "FOXHOOD_DATA_KEYS" in env
